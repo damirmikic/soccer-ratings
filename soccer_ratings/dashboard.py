@@ -14,9 +14,11 @@ from .client import (
     fetch_rankings,
     filter_matches_for_league,
     load_cached_league_history,
+    summarize_league_stats,
 )
 from .db import load_league_history_matches
 from .db import (
+    import_league_history as import_league_history_to_db,
     load_country_leagues as load_country_leagues_from_db,
 )
 from .db import (
@@ -24,6 +26,7 @@ from .db import (
 )
 from .db import (
     load_league_home_away_ratings as load_league_home_away_ratings_from_db,
+    load_league_summary_stats,
 )
 
 
@@ -97,7 +100,21 @@ def create_dashboard_handler() -> type[BaseHTTPRequestHandler]:
                         ratings_cache[league_url] = None
                     if not ratings_cache[league_url]:
                         ratings_cache[league_url] = fetch_league_home_away_ratings(league_url)
-                self._send_json(ratings_cache[league_url])
+                league_stats = None
+                try:
+                    league_stats = load_league_summary_stats(league_url)
+                except Exception:
+                    league_stats = None
+                if league_stats is None:
+                    cached = load_cached_league_history(league_url)
+                    if cached is not None:
+                        league_stats = summarize_league_stats(
+                            filter_matches_for_league(cached.get("matches", []), league_url)
+                        )
+
+                payload = dict(ratings_cache[league_url])
+                payload["league_stats"] = league_stats
+                self._send_json(payload)
                 return
 
             if parsed.path == "/api/compare":
@@ -196,6 +213,25 @@ def create_dashboard_handler() -> type[BaseHTTPRequestHandler]:
                     return
 
                 payload = build_and_cache_league_history(league_url, force_refresh=refresh)
+                self._send_json(payload)
+                return
+
+            if parsed.path == "/api/league-history/import":
+                params = parse_qs(parsed.query)
+                league_url = _require_query_param(params, "league_url")
+                if not league_url:
+                    self._send_json(
+                        {"error": "Missing required query parameter: league_url"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+
+                try:
+                    payload = import_league_history_to_db(league_url)
+                except Exception as exc:
+                    self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                    return
+
                 self._send_json(payload)
                 return
 
@@ -541,6 +577,12 @@ INDEX_HTML = """<!doctype html>
       cursor: not-allowed;
     }
 
+    .history-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
     .status {
       display: flex;
       align-items: center;
@@ -623,7 +665,7 @@ INDEX_HTML = """<!doctype html>
 
     .matchup-body {
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
+      grid-template-columns: 1fr;
       gap: 18px;
       padding: 18px;
     }
@@ -643,43 +685,92 @@ INDEX_HTML = """<!doctype html>
       align-items: end;
     }
 
-    .matchup-cards {
+    .market-groups {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 12px;
     }
 
-    .odds-card {
-      padding: 14px;
+    .market-group {
+      padding: 12px;
       border: 1px solid var(--line);
       border-radius: 16px;
-      background: #fbfcfe;
+      background: linear-gradient(180deg, #fcfdff, #f8fafc);
     }
 
-    .odds-label {
-      display: block;
-      margin-bottom: 8px;
+    .market-group-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .market-group-title {
+      margin: 0;
+      font-family: "Barlow", sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .market-group-note {
       font-size: 10px;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       color: var(--muted);
       font-weight: 700;
     }
 
-    .odds-prob {
-      display: block;
-      font-family: "Barlow", sans-serif;
-      font-size: 26px;
+    .market-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border: 1px solid rgba(16, 24, 40, 0.06);
+      border-radius: 14px;
+      background: white;
+    }
+
+    .market-table th,
+    .market-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(16, 24, 40, 0.06);
+      text-align: left;
+      font-size: 12px;
+    }
+
+    .market-table thead th {
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+      background: #f8fafc;
+    }
+
+    .market-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .market-name {
       font-weight: 700;
       color: var(--ink);
     }
 
-    .odds-decimal {
-      display: block;
-      margin-top: 4px;
-      font-size: 12px;
-      color: var(--accent-3);
+    .market-prob {
+      font-family: "Barlow", sans-serif;
+      font-size: 18px;
       font-weight: 700;
+      color: var(--ink);
+      white-space: nowrap;
+    }
+
+    .market-price {
+      font-family: "Barlow", sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent-3);
+      white-space: nowrap;
     }
 
     .rating-gap {
@@ -697,6 +788,44 @@ INDEX_HTML = """<!doctype html>
       color: var(--ink);
       font-family: "Barlow", sans-serif;
       font-size: 15px;
+    }
+
+    .team-goal-context {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .team-goal-card {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: white;
+    }
+
+    .team-goal-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .team-goal-card span {
+      display: block;
+      font-family: "Barlow", sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .team-goal-card small {
+      display: block;
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
     }
 
     input[type="number"] {
@@ -740,11 +869,46 @@ INDEX_HTML = """<!doctype html>
     .multi-list {
       display: grid;
       gap: 12px;
+      overflow: auto;
+      max-height: 760px;
+      padding-top: 2px;
+    }
+
+    .multi-grid-template {
+      display: grid;
+      grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 1.2fr) repeat(9, minmax(74px, 82px));
+      min-width: 1120px;
+    }
+
+    .multi-header {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      gap: 10px;
+      margin-bottom: 2px;
+      padding: 8px 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: linear-gradient(180deg, #fdfefe, #f2f6fb);
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+    }
+
+    .multi-header-cell {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+      padding: 4px 2px;
+      text-align: center;
+    }
+
+    .multi-header-cell.is-team {
+      text-align: left;
+      padding-left: 4px;
     }
 
     .multi-row {
-      display: grid;
-      grid-template-columns: 1.2fr 1.2fr repeat(5, minmax(88px, 1fr));
       gap: 10px;
       align-items: end;
       padding: 14px;
@@ -754,8 +918,8 @@ INDEX_HTML = """<!doctype html>
     }
 
     .multi-leg-odds {
-      min-height: 50px;
-      padding: 8px 10px;
+      min-height: 46px;
+      padding: 7px 8px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -776,7 +940,7 @@ INDEX_HTML = """<!doctype html>
 
     .multi-leg-odds span {
       font-family: "Barlow", sans-serif;
-      font-size: 20px;
+      font-size: 17px;
       font-weight: 700;
       color: var(--accent-3);
     }
@@ -942,6 +1106,36 @@ INDEX_HTML = """<!doctype html>
       color: var(--muted);
     }
 
+    .league-stats {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .league-stat {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: white;
+    }
+
+    .league-stat strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .league-stat span {
+      font-family: "Barlow", sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
     .selection-pill {
       justify-self: end;
       padding: 9px 12px;
@@ -956,7 +1150,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     @media (max-width: 920px) {
-      .hero, .controls, .panes, .metric-strip, .status-bar, .matchup-body, .matchup-controls, .matchup-cards, .multi-toolbar, .multi-row, .multi-summary, .history-cache {
+      .hero, .controls, .panes, .metric-strip, .status-bar, .matchup-body, .matchup-controls, .matchup-cards, .multi-toolbar, .multi-row, .multi-summary, .history-cache, .league-stats, .team-goal-context {
         grid-template-columns: 1fr;
       }
 
@@ -1019,7 +1213,10 @@ INDEX_HTML = """<!doctype html>
       </div>
       <div class="control">
         <label for="build-history">League History</label>
-        <button id="build-history" disabled>Build Cache</button>
+        <div class="history-actions">
+          <button id="build-history" disabled>Build Local Cache</button>
+          <button id="import-history" disabled>Import To DB</button>
+        </div>
       </div>
     </section>
 
@@ -1031,6 +1228,16 @@ INDEX_HTML = """<!doctype html>
     <div class="history-cache">
       <div class="history-cache-meta" id="history-cache-meta">No league history cache yet.</div>
       <div class="history-cache-meta" id="history-cache-path"></div>
+    </div>
+
+    <div class="league-stats" id="league-stats">
+      <div class="league-stat"><strong>Matches</strong><span id="league-matches">-</span></div>
+      <div class="league-stat"><strong>Avg Goals</strong><span id="league-avg-goals">-</span></div>
+      <div class="league-stat"><strong>Avg Home</strong><span id="league-avg-home-goals">-</span></div>
+      <div class="league-stat"><strong>Avg Away</strong><span id="league-avg-away-goals">-</span></div>
+      <div class="league-stat"><strong>Home Win %</strong><span id="league-home-win-pct">-</span></div>
+      <div class="league-stat"><strong>Draw %</strong><span id="league-draw-pct">-</span></div>
+      <div class="league-stat"><strong>Away Win %</strong><span id="league-away-win-pct">-</span></div>
     </div>
 
     <section class="matchup">
@@ -1068,34 +1275,69 @@ INDEX_HTML = """<!doctype html>
               <span>Away team away rating: <strong id="selected-away-rating">-</strong></span>
               <span>Rating gap: <strong id="rating-gap">-</strong></span>
             </div>
+            <div class="team-goal-context">
+              <div class="team-goal-card">
+                <strong>Home Team Goal Profile</strong>
+                <span id="home-team-goal-profile">-</span>
+                <small id="home-team-goal-sample">No history sample yet.</small>
+              </div>
+              <div class="team-goal-card">
+                <strong>Away Team Goal Profile</strong>
+                <span id="away-team-goal-profile">-</span>
+                <small id="away-team-goal-sample">No history sample yet.</small>
+              </div>
+            </div>
             <div class="market-meta" id="market-meta">Fair odds with 0.00% margin.</div>
           </div>
-          <div class="matchup-cards" id="matchup-cards">
-            <div class="odds-card">
-              <span class="odds-label">Home Win</span>
-              <span class="odds-prob" id="home-win-prob">-</span>
-              <span class="odds-decimal" id="home-win-odds">Odds -</span>
-            </div>
-            <div class="odds-card">
-              <span class="odds-label">Draw</span>
-              <span class="odds-prob" id="draw-prob">-</span>
-              <span class="odds-decimal" id="draw-odds">Odds -</span>
-            </div>
-            <div class="odds-card">
-              <span class="odds-label">Away Win</span>
-              <span class="odds-prob" id="away-win-prob">-</span>
-              <span class="odds-decimal" id="away-win-odds">Odds -</span>
-            </div>
-            <div class="odds-card">
-              <span class="odds-label">Home DNB</span>
-              <span class="odds-prob" id="home-dnb-prob">-</span>
-              <span class="odds-decimal" id="home-dnb-odds">Odds -</span>
-            </div>
-            <div class="odds-card">
-              <span class="odds-label">Away DNB</span>
-              <span class="odds-prob" id="away-dnb-prob">-</span>
-              <span class="odds-decimal" id="away-dnb-odds">Odds -</span>
-            </div>
+          <div class="market-groups" id="matchup-cards">
+            <section class="market-group">
+              <div class="market-group-header">
+                <h3 class="market-group-title">1X2</h3>
+                <span class="market-group-note">Match Result</span>
+              </div>
+              <table class="market-table">
+                <thead>
+                  <tr><th>Market</th><th>Prob.</th><th>Odds</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td class="market-name">Home Win</td><td class="market-prob" id="home-win-prob">-</td><td class="market-price" id="home-win-odds">-</td></tr>
+                  <tr><td class="market-name">Draw</td><td class="market-prob" id="draw-prob">-</td><td class="market-price" id="draw-odds">-</td></tr>
+                  <tr><td class="market-name">Away Win</td><td class="market-prob" id="away-win-prob">-</td><td class="market-price" id="away-win-odds">-</td></tr>
+                </tbody>
+              </table>
+            </section>
+            <section class="market-group">
+              <div class="market-group-header">
+                <h3 class="market-group-title">DNB</h3>
+                <span class="market-group-note">Draw No Bet</span>
+              </div>
+              <table class="market-table">
+                <thead>
+                  <tr><th>Market</th><th>Prob.</th><th>Odds</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td class="market-name">Home DNB</td><td class="market-prob" id="home-dnb-prob">-</td><td class="market-price" id="home-dnb-odds">-</td></tr>
+                  <tr><td class="market-name">Away DNB</td><td class="market-prob" id="away-dnb-prob">-</td><td class="market-price" id="away-dnb-odds">-</td></tr>
+                </tbody>
+              </table>
+            </section>
+            <section class="market-group">
+              <div class="market-group-header">
+                <h3 class="market-group-title">Goals &amp; BTTS</h3>
+                <span class="market-group-note">Poisson View</span>
+              </div>
+              <table class="market-table">
+                <thead>
+                  <tr><th>Market</th><th>Prob.</th><th>Odds</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td class="market-name">Over 2.5</td><td class="market-prob" id="over-25-prob">-</td><td class="market-price" id="over-25-odds">-</td></tr>
+                  <tr><td class="market-name">Under 2.5</td><td class="market-prob" id="under-25-prob">-</td><td class="market-price" id="under-25-odds">-</td></tr>
+                  <tr><td class="market-name">BTTS Yes</td><td class="market-prob" id="btts-yes-prob">-</td><td class="market-price" id="btts-yes-odds">-</td></tr>
+                  <tr><td class="market-name">BTTS No</td><td class="market-prob" id="btts-no-prob">-</td><td class="market-price" id="btts-no-odds">-</td></tr>
+                </tbody>
+              </table>
+            </section>
           </div>
         </div>
       </div>
@@ -1166,6 +1408,7 @@ INDEX_HTML = """<!doctype html>
     const countrySelect = document.getElementById("country");
     const leagueSelect = document.getElementById("league");
     const buildHistoryButton = document.getElementById("build-history");
+    const importHistoryButton = document.getElementById("import-history");
     const statusEl = document.getElementById("status");
     const homeTable = document.getElementById("home-table");
     const awayTable = document.getElementById("away-table");
@@ -1190,6 +1433,14 @@ INDEX_HTML = """<!doctype html>
     const awayDnbProb = document.getElementById("away-dnb-prob");
     const homeDnbOdds = document.getElementById("home-dnb-odds");
     const awayDnbOdds = document.getElementById("away-dnb-odds");
+    const over25Prob = document.getElementById("over-25-prob");
+    const under25Prob = document.getElementById("under-25-prob");
+    const over25Odds = document.getElementById("over-25-odds");
+    const under25Odds = document.getElementById("under-25-odds");
+    const bttsYesProb = document.getElementById("btts-yes-prob");
+    const bttsNoProb = document.getElementById("btts-no-prob");
+    const bttsYesOdds = document.getElementById("btts-yes-odds");
+    const bttsNoOdds = document.getElementById("btts-no-odds");
     const marginInput = document.getElementById("margin");
     const marketMeta = document.getElementById("market-meta");
     const tabButtons = Array.from(document.querySelectorAll("[data-tab-target]"));
@@ -1202,6 +1453,17 @@ INDEX_HTML = """<!doctype html>
     const multiHelp = document.getElementById("multi-help");
     const historyCacheMeta = document.getElementById("history-cache-meta");
     const historyCachePath = document.getElementById("history-cache-path");
+    const leagueMatches = document.getElementById("league-matches");
+    const leagueAvgGoals = document.getElementById("league-avg-goals");
+    const leagueAvgHomeGoals = document.getElementById("league-avg-home-goals");
+    const leagueAvgAwayGoals = document.getElementById("league-avg-away-goals");
+    const leagueHomeWinPct = document.getElementById("league-home-win-pct");
+    const leagueDrawPct = document.getElementById("league-draw-pct");
+    const leagueAwayWinPct = document.getElementById("league-away-win-pct");
+    const homeTeamGoalProfile = document.getElementById("home-team-goal-profile");
+    const awayTeamGoalProfile = document.getElementById("away-team-goal-profile");
+    const homeTeamGoalSample = document.getElementById("home-team-goal-sample");
+    const awayTeamGoalSample = document.getElementById("away-team-goal-sample");
 
     function setStatus(message) {
       statusEl.textContent = message;
@@ -1267,6 +1529,38 @@ INDEX_HTML = """<!doctype html>
       historyCachePath.textContent = "";
     }
 
+    function resetLeagueStats() {
+      leagueMatches.textContent = "-";
+      leagueAvgGoals.textContent = "-";
+      leagueAvgHomeGoals.textContent = "-";
+      leagueAvgAwayGoals.textContent = "-";
+      leagueHomeWinPct.textContent = "-";
+      leagueDrawPct.textContent = "-";
+      leagueAwayWinPct.textContent = "-";
+    }
+
+    function resetTeamGoalContext() {
+      homeTeamGoalProfile.textContent = "-";
+      awayTeamGoalProfile.textContent = "-";
+      homeTeamGoalSample.textContent = "No history sample yet.";
+      awayTeamGoalSample.textContent = "No history sample yet.";
+    }
+
+    function renderLeagueStats(stats) {
+      if (!stats) {
+        resetLeagueStats();
+        return;
+      }
+
+      leagueMatches.textContent = String(stats.matches ?? "-");
+      leagueAvgGoals.textContent = Number(stats.avg_goals).toFixed(2);
+      leagueAvgHomeGoals.textContent = Number(stats.avg_home_goals).toFixed(2);
+      leagueAvgAwayGoals.textContent = Number(stats.avg_away_goals).toFixed(2);
+      leagueHomeWinPct.textContent = `${Number(stats.home_win_pct).toFixed(1)}%`;
+      leagueDrawPct.textContent = `${Number(stats.draw_pct).toFixed(1)}%`;
+      leagueAwayWinPct.textContent = `${Number(stats.away_win_pct).toFixed(1)}%`;
+    }
+
     function cloneRows(rows) {
       return (rows || []).map((row) => ({ ...row }));
     }
@@ -1279,6 +1573,7 @@ INDEX_HTML = """<!doctype html>
       selectedHomeRating.textContent = "-";
       selectedAwayRating.textContent = "-";
       ratingGapEl.textContent = "-";
+      resetTeamGoalContext();
       homeWinProb.textContent = "-";
       drawProb.textContent = "-";
       awayWinProb.textContent = "-";
@@ -1289,6 +1584,14 @@ INDEX_HTML = """<!doctype html>
       awayWinOdds.textContent = "Odds -";
       homeDnbOdds.textContent = "Odds -";
       awayDnbOdds.textContent = "Odds -";
+      over25Prob.textContent = "-";
+      under25Prob.textContent = "-";
+      over25Odds.textContent = "Odds -";
+      under25Odds.textContent = "Odds -";
+      bttsYesProb.textContent = "-";
+      bttsNoProb.textContent = "-";
+      bttsYesOdds.textContent = "Odds -";
+      bttsNoOdds.textContent = "Odds -";
       marketMeta.textContent = `Fair odds with ${Number(marginInput.value || 0).toFixed(2)}% margin.`;
     }
 
@@ -1324,8 +1627,22 @@ INDEX_HTML = """<!doctype html>
         return;
       }
 
-      multiList.innerHTML = state.multiRows.map((row, index) => `
-        <div class="multi-row" data-row-id="${row.id}">
+      multiList.innerHTML = `
+        <div class="multi-header multi-grid-template">
+          <div class="multi-header-cell is-team">Home Team</div>
+          <div class="multi-header-cell is-team">Away Team</div>
+          <div class="multi-header-cell">1</div>
+          <div class="multi-header-cell">X</div>
+          <div class="multi-header-cell">2</div>
+          <div class="multi-header-cell">DNB 1</div>
+          <div class="multi-header-cell">DNB 2</div>
+          <div class="multi-header-cell">O2.5</div>
+          <div class="multi-header-cell">U2.5</div>
+          <div class="multi-header-cell">BTTS Y</div>
+          <div class="multi-header-cell">BTTS N</div>
+        </div>
+      ` + state.multiRows.map((row, index) => `
+        <div class="multi-row multi-grid-template" data-row-id="${row.id}">
           <div class="control">
             <label>Home Team ${index + 1}</label>
             <select data-field="homeTeam">
@@ -1341,8 +1658,12 @@ INDEX_HTML = """<!doctype html>
           ${buildMultiOddsCell("1", formatMultiOdds(row, "1"))}
           ${buildMultiOddsCell("X", formatMultiOdds(row, "X"))}
           ${buildMultiOddsCell("2", formatMultiOdds(row, "2"))}
-          ${buildMultiOddsCell("Home DNB", formatMultiOdds(row, "DNB1"))}
-          ${buildMultiOddsCell("Away DNB", formatMultiOdds(row, "DNB2"))}
+          ${buildMultiOddsCell("DNB 1", formatMultiOdds(row, "DNB1"))}
+          ${buildMultiOddsCell("DNB 2", formatMultiOdds(row, "DNB2"))}
+          ${buildMultiOddsCell("O2.5", formatMultiOdds(row, "O25"))}
+          ${buildMultiOddsCell("U2.5", formatMultiOdds(row, "U25"))}
+          ${buildMultiOddsCell("BTTS Y", formatMultiOdds(row, "BTTSY"))}
+          ${buildMultiOddsCell("BTTS N", formatMultiOdds(row, "BTTSN"))}
         </div>
       `).join("");
 
@@ -1388,7 +1709,7 @@ INDEX_HTML = """<!doctype html>
       multiMarginDisplay.textContent = `${Number(multiMarginInput.value || 0).toFixed(2)}%`;
 
       if (!state.multiRows.length) {
-        multiHelp.textContent = "Each row shows `1`, `X`, `2`, `Home DNB`, and `Away DNB` for one matchup from the selected league.";
+        multiHelp.textContent = "Each row shows `1`, `X`, `2`, `DNB`, `O2.5`, `U2.5`, and `BTTS` prices for one matchup from the selected league.";
         return;
       }
 
@@ -1427,7 +1748,11 @@ INDEX_HTML = """<!doctype html>
           "X": Number(data.market_odds.draw),
           "2": Number(data.market_odds.away),
           "DNB1": Number(data.market_dnb_odds.home),
-          "DNB2": Number(data.market_dnb_odds.away)
+          "DNB2": Number(data.market_dnb_odds.away),
+          "O25": Number(data.market_total_goals_odds.over),
+          "U25": Number(data.market_total_goals_odds.under),
+          "BTTSY": Number(data.market_btts_odds.yes),
+          "BTTSN": Number(data.market_btts_odds.no)
         };
         row.status = "ready";
       } catch (error) {
@@ -1527,6 +1852,7 @@ INDEX_HTML = """<!doctype html>
       setStatus("Loading home and away ratings...");
       const data = await fetchJson(`/api/league-ratings?league_url=${encodeURIComponent(leagueUrl)}`);
       state.currentRatings = data;
+      renderLeagueStats(data.league_stats || null);
       renderTable(homeTable, data.home || []);
       renderTable(awayTable, data.away || []);
       homeCount.textContent = `${(data.home || []).length} teams`;
@@ -1539,6 +1865,7 @@ INDEX_HTML = """<!doctype html>
       awayTeamSelect.disabled = !(data.away || []).length;
       initializeMultiRows(data.home || [], data.away || []);
       buildHistoryButton.disabled = false;
+      importHistoryButton.disabled = false;
       leagueSelect.disabled = false;
       state.loadingLeagueRatings = false;
       const league = state.leagues.find((item) => item.league_path === leagueUrl);
@@ -1579,7 +1906,25 @@ INDEX_HTML = """<!doctype html>
       historyCachePath.textContent = data.cache_path || "";
       buildHistoryButton.textContent = "Refresh Cache";
       buildHistoryButton.disabled = false;
+      await loadRatings(state.selectedLeague);
       setStatus("League history cache is ready.");
+    }
+
+    async function importLeagueHistoryToDb() {
+      if (!state.selectedLeague) {
+        return;
+      }
+
+      importHistoryButton.disabled = true;
+      importHistoryButton.textContent = "Importing...";
+      setStatus("Importing league history into Postgres...");
+      const data = await fetchJson(
+        `/api/league-history/import?league_url=${encodeURIComponent(state.selectedLeague)}`
+      );
+      importHistoryButton.textContent = "Import To DB";
+      importHistoryButton.disabled = false;
+      await loadRatings(state.selectedLeague);
+      setStatus(`Imported ${data.matches_imported} matches to Postgres for the selected league.`);
     }
 
     async function compareTeams() {
@@ -1608,9 +1953,26 @@ INDEX_HTML = """<!doctype html>
       awayWinOdds.textContent = `Odds ${Number(data.market_odds.away).toFixed(2)}`;
       homeDnbOdds.textContent = `Odds ${Number(data.market_dnb_odds.home).toFixed(2)}`;
       awayDnbOdds.textContent = `Odds ${Number(data.market_dnb_odds.away).toFixed(2)}`;
+      over25Prob.textContent = `${(Number(data.total_goals_probabilities.over) * 100).toFixed(1)}%`;
+      under25Prob.textContent = `${(Number(data.total_goals_probabilities.under) * 100).toFixed(1)}%`;
+      over25Odds.textContent = `Odds ${Number(data.market_total_goals_odds.over).toFixed(2)}`;
+      under25Odds.textContent = `Odds ${Number(data.market_total_goals_odds.under).toFixed(2)}`;
+      bttsYesProb.textContent = `${(Number(data.btts_probabilities.yes) * 100).toFixed(1)}%`;
+      bttsNoProb.textContent = `${(Number(data.btts_probabilities.no) * 100).toFixed(1)}%`;
+      bttsYesOdds.textContent = `Odds ${Number(data.market_btts_odds.yes).toFixed(2)}`;
+      bttsNoOdds.textContent = `Odds ${Number(data.market_btts_odds.no).toFixed(2)}`;
       const historyContext = data.historical_context;
+      const teamGoalContext = data.team_goal_context;
+      if (teamGoalContext) {
+        homeTeamGoalProfile.textContent = `${Number(teamGoalContext.home_team_home_scored).toFixed(2)} scored • ${Number(teamGoalContext.home_team_home_conceded).toFixed(2)} conceded`;
+        awayTeamGoalProfile.textContent = `${Number(teamGoalContext.away_team_away_scored).toFixed(2)} scored • ${Number(teamGoalContext.away_team_away_conceded).toFixed(2)} conceded`;
+        homeTeamGoalSample.textContent = `${teamGoalContext.home_team_home_sample} home matches in history sample`;
+        awayTeamGoalSample.textContent = `${teamGoalContext.away_team_away_sample} away matches in history sample`;
+      } else {
+        resetTeamGoalContext();
+      }
       const historyMeta = historyContext
-        ? ` • ${data.history_source} history • ${historyContext.sample_size} completed matches • local sample ${historyContext.local_match_count} • exp goals ${Number(historyContext.expected_home_goals).toFixed(2)}-${Number(historyContext.expected_away_goals).toFixed(2)}`
+        ? ` • ${data.history_source} history • ${historyContext.sample_size} completed matches • local sample ${historyContext.local_match_count} • exp goals ${Number(data.expected_goals.home).toFixed(2)}-${Number(data.expected_goals.away).toFixed(2)}`
         : " • rating-only model";
       marketMeta.textContent = `Shin margin ${Number(data.margin_percent).toFixed(2)}% • 1X2 overround ${(Number(data.shin.overround) * 100).toFixed(2)}% • z ${Number(data.shin.z).toFixed(4)}${historyMeta}`;
       homeTeamSelect.disabled = false;
@@ -1637,9 +1999,12 @@ INDEX_HTML = """<!doctype html>
         renderSelect(leagueSelect, [], "Select a country first", "league", "league_path");
         leagueSelect.disabled = true;
         buildHistoryButton.disabled = true;
-        buildHistoryButton.textContent = "Build Cache";
+        importHistoryButton.disabled = true;
+        buildHistoryButton.textContent = "Build Local Cache";
+        importHistoryButton.textContent = "Import To DB";
         resetMultiBuilder();
         resetHistoryCacheStatus();
+        resetLeagueStats();
         setStatus("Choose a country to load its leagues.");
         return;
       }
@@ -1657,8 +2022,11 @@ INDEX_HTML = """<!doctype html>
       resetComparison();
       resetMultiBuilder();
       resetHistoryCacheStatus();
+      resetLeagueStats();
       buildHistoryButton.disabled = !state.selectedLeague;
-      buildHistoryButton.textContent = "Build Cache";
+      importHistoryButton.disabled = !state.selectedLeague;
+      buildHistoryButton.textContent = "Build Local Cache";
+      importHistoryButton.textContent = "Import To DB";
       updateSummary();
       if (state.selectedLeague) {
         loadRatings(state.selectedLeague).catch((error) => {
@@ -1752,7 +2120,15 @@ INDEX_HTML = """<!doctype html>
     buildHistoryButton.addEventListener("click", () => {
       buildLeagueHistoryCache(true).catch((error) => {
         buildHistoryButton.disabled = false;
-        buildHistoryButton.textContent = "Build Cache";
+        buildHistoryButton.textContent = "Build Local Cache";
+        setStatus(error.message);
+      });
+    });
+
+    importHistoryButton.addEventListener("click", () => {
+      importLeagueHistoryToDb().catch((error) => {
+        importHistoryButton.disabled = false;
+        importHistoryButton.textContent = "Import To DB";
         setStatus(error.message);
       });
     });
@@ -1762,6 +2138,7 @@ INDEX_HTML = """<!doctype html>
     resetComparison();
     resetMultiBuilder();
     resetHistoryCacheStatus();
+    resetLeagueStats();
     setActiveTab("single");
     updateSummary();
 

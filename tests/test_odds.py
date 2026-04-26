@@ -7,16 +7,23 @@ from soccer_ratings.client import (
     fetch_league_history,
     filter_matches_for_league,
     league_code_from_url,
+    summarize_league_stats,
 )
 from soccer_ratings.db import import_all_history, import_country_history
 from soccer_ratings.odds import (
     apply_shin_margin,
+    build_btts_odds,
     build_dnb_odds,
     build_match_odds,
+    build_total_goals_odds,
     calibrate_probabilities_with_history,
+    calculate_btts_probabilities,
     calculate_dnb_probabilities,
     calculate_match_probabilities,
+    calculate_total_goals_probabilities,
+    estimate_expected_goals,
     summarize_historical_match_context,
+    summarize_team_goal_context,
 )
 
 
@@ -54,6 +61,25 @@ class OddsModelTests(unittest.TestCase):
         self.assertLess(market["odds"]["home"], 2.0)
         self.assertGreater(market["z"], 0.0)
 
+    def test_total_goals_probabilities_sum_to_one(self) -> None:
+        probabilities = calculate_total_goals_probabilities(1.5, 1.1, line=2.5)
+
+        self.assertAlmostEqual(probabilities["over"] + probabilities["under"], 1.0, places=4)
+
+    def test_btts_probabilities_sum_to_one(self) -> None:
+        probabilities = calculate_btts_probabilities(1.4, 1.2)
+
+        self.assertAlmostEqual(probabilities["yes"] + probabilities["no"], 1.0, places=4)
+
+    def test_goal_market_odds_exist_for_reasonable_expected_goals(self) -> None:
+        total_odds = build_total_goals_odds(1.6, 1.0, line=2.5)
+        btts_odds = build_btts_odds(1.6, 1.0)
+
+        self.assertGreater(total_odds["over"], 0.0)
+        self.assertGreater(total_odds["under"], 0.0)
+        self.assertGreater(btts_odds["yes"], 0.0)
+        self.assertGreater(btts_odds["no"], 0.0)
+
 
 class TeamComparisonTests(unittest.TestCase):
     def test_compare_teams_uses_home_and_away_pools(self) -> None:
@@ -87,18 +113,24 @@ class TeamComparisonTests(unittest.TestCase):
         away_rows = [{"team": "Beta", "rating": 2000.0, "rank": 2}]
         historical_matches = [
             {
+                "home_team": "Alpha",
+                "away_team": "Gamma",
                 "home_rating": 2095.0,
                 "away_rating": 1995.0,
                 "home_goals": 1,
                 "away_goals": 1,
             },
             {
+                "home_team": "Alpha",
+                "away_team": "Delta",
                 "home_rating": 2105.0,
                 "away_rating": 2005.0,
                 "home_goals": 0,
                 "away_goals": 0,
             },
             {
+                "home_team": "Epsilon",
+                "away_team": "Beta",
                 "home_rating": 2110.0,
                 "away_rating": 2010.0,
                 "home_goals": 2,
@@ -117,6 +149,10 @@ class TeamComparisonTests(unittest.TestCase):
         self.assertEqual(comparison["model"], "history-calibrated")
         self.assertIsNotNone(comparison["historical_context"])
         self.assertGreater(comparison["probabilities"]["draw"], comparison["base_probabilities"]["draw"])
+        self.assertIn("expected_goals", comparison)
+        self.assertIsNotNone(comparison["team_goal_context"])
+        self.assertIn("total_goals_probabilities", comparison)
+        self.assertIn("btts_probabilities", comparison)
 
 
 class MatchDeduplicationTests(unittest.TestCase):
@@ -202,6 +238,51 @@ class HistoricalCalibrationTests(unittest.TestCase):
             1.0,
             places=3,
         )
+
+    def test_estimate_expected_goals_blends_history_when_available(self) -> None:
+        expected_goals = estimate_expected_goals(
+            2100.0,
+            2000.0,
+            {
+                "effective_sample_size": 20.0,
+                "expected_home_goals": 1.9,
+                "expected_away_goals": 0.8,
+            },
+        )
+
+        self.assertGreater(expected_goals["home"], expected_goals["away"])
+        self.assertGreater(expected_goals["total"], 0.0)
+
+    def test_summarize_team_goal_context_reads_home_and_away_team_profiles(self) -> None:
+        context = summarize_team_goal_context(
+            [
+                {"home_team": "Alpha", "away_team": "Beta", "home_goals": 2, "away_goals": 1},
+                {"home_team": "Alpha", "away_team": "Gamma", "home_goals": 1, "away_goals": 0},
+                {"home_team": "Delta", "away_team": "Beta", "home_goals": 1, "away_goals": 2},
+            ],
+            home_team="Alpha",
+            away_team="Beta",
+        )
+
+        self.assertIsNotNone(context)
+        self.assertEqual(context["home_team_home_sample"], 2)
+        self.assertEqual(context["away_team_away_sample"], 2)
+        self.assertGreater(context["home_team_home_scored"], 0.0)
+
+    def test_summarize_league_stats_returns_goal_and_result_distribution(self) -> None:
+        stats = summarize_league_stats(
+            [
+                {"home_goals": 2, "away_goals": 1},
+                {"home_goals": 1, "away_goals": 1},
+                {"home_goals": 0, "away_goals": 2},
+            ]
+        )
+
+        self.assertEqual(stats["matches"], 3)
+        self.assertEqual(stats["avg_goals"], 2.33)
+        self.assertEqual(stats["home_win_pct"], 33.3)
+        self.assertEqual(stats["draw_pct"], 33.3)
+        self.assertEqual(stats["away_win_pct"], 33.3)
 
 
 class ResilienceTests(unittest.TestCase):

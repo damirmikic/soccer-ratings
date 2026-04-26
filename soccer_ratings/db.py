@@ -384,6 +384,43 @@ def load_league_history_matches(
     return matches
 
 
+def load_league_summary_stats(league_url: str, database_url: str | None = None) -> dict | None:
+    competition = league_code_from_url(league_url).upper()
+    if not competition:
+        return None
+
+    with db_cursor(database_url, use_direct=False) as (_, cur):
+        cur.execute(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE home_goals IS NOT NULL AND away_goals IS NOT NULL) AS match_count,
+                AVG(home_goals + away_goals) FILTER (WHERE home_goals IS NOT NULL AND away_goals IS NOT NULL) AS avg_goals,
+                AVG(home_goals) FILTER (WHERE home_goals IS NOT NULL) AS avg_home_goals,
+                AVG(away_goals) FILTER (WHERE away_goals IS NOT NULL) AS avg_away_goals,
+                AVG(CASE WHEN home_goals > away_goals THEN 1.0 ELSE 0.0 END) FILTER (WHERE home_goals IS NOT NULL AND away_goals IS NOT NULL) AS home_win_rate,
+                AVG(CASE WHEN home_goals = away_goals THEN 1.0 ELSE 0.0 END) FILTER (WHERE home_goals IS NOT NULL AND away_goals IS NOT NULL) AS draw_rate,
+                AVG(CASE WHEN home_goals < away_goals THEN 1.0 ELSE 0.0 END) FILTER (WHERE home_goals IS NOT NULL AND away_goals IS NOT NULL) AS away_win_rate
+            FROM matches
+            WHERE competition = %s
+            """,
+            (competition,),
+        )
+        row = cur.fetchone()
+
+    if row is None or not row[0]:
+        return None
+
+    return {
+        "matches": int(row[0]),
+        "avg_goals": round(float(row[1]), 2) if row[1] is not None else 0.0,
+        "avg_home_goals": round(float(row[2]), 2) if row[2] is not None else 0.0,
+        "avg_away_goals": round(float(row[3]), 2) if row[3] is not None else 0.0,
+        "home_win_pct": round(float(row[4]) * 100.0, 1) if row[4] is not None else 0.0,
+        "draw_pct": round(float(row[5]) * 100.0, 1) if row[5] is not None else 0.0,
+        "away_win_pct": round(float(row[6]) * 100.0, 1) if row[6] is not None else 0.0,
+    }
+
+
 def load_country_rankings(database_url: str | None = None) -> list[dict]:
     with db_cursor(database_url, use_direct=False) as (_, cur):
         cur.execute(

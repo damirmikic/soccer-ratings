@@ -11,12 +11,18 @@ from urllib.request import Request, urlopen
 from .odds import (
     apply_shin_margin,
     build_dnb_odds,
+    build_btts_odds,
     build_odds_from_probabilities,
     build_match_odds,
+    build_total_goals_odds,
     calibrate_probabilities_with_history,
+    calculate_btts_probabilities,
     calculate_dnb_probabilities,
     calculate_match_probabilities,
+    calculate_total_goals_probabilities,
+    estimate_expected_goals,
     summarize_historical_match_context,
+    summarize_team_goal_context,
 )
 from .parser import (
     parse_leagues,
@@ -288,12 +294,43 @@ def compare_teams_from_ratings(
         historical_matches or [],
         target_rating_gap=home_rating - away_rating,
     )
+    team_goal_context = summarize_team_goal_context(
+        historical_matches or [],
+        home_team=home_team,
+        away_team=away_team,
+    )
     probabilities = calibrate_probabilities_with_history(base_probabilities, historical_context)
     dnb_probabilities = calculate_dnb_probabilities(probabilities)
     odds = build_odds_from_probabilities(probabilities)
     dnb_odds = build_odds_from_probabilities(dnb_probabilities)
+    expected_goals = estimate_expected_goals(
+        home_rating,
+        away_rating,
+        historical_context,
+        team_goal_context=team_goal_context,
+    )
+    total_goals_probabilities = calculate_total_goals_probabilities(
+        expected_goals["home"],
+        expected_goals["away"],
+        line=2.5,
+    )
+    total_goals_odds = build_total_goals_odds(
+        expected_goals["home"],
+        expected_goals["away"],
+        line=2.5,
+    )
+    btts_probabilities = calculate_btts_probabilities(
+        expected_goals["home"],
+        expected_goals["away"],
+    )
+    btts_odds = build_btts_odds(
+        expected_goals["home"],
+        expected_goals["away"],
+    )
     market = apply_shin_margin(probabilities, margin_percent)
     dnb_market = apply_shin_margin(dnb_probabilities, margin_percent)
+    total_goals_market = apply_shin_margin(total_goals_probabilities, margin_percent)
+    btts_market = apply_shin_margin(btts_probabilities, margin_percent)
 
     return {
         "home_team": home_entry,
@@ -307,16 +344,30 @@ def compare_teams_from_ratings(
         "odds": odds,
         "dnb_probabilities": dnb_probabilities,
         "dnb_odds": dnb_odds,
+        "expected_goals": expected_goals,
+        "team_goal_context": team_goal_context,
+        "total_goals_probabilities": total_goals_probabilities,
+        "total_goals_odds": total_goals_odds,
+        "btts_probabilities": btts_probabilities,
+        "btts_odds": btts_odds,
         "historical_context": historical_context,
         "market_probabilities": market["probabilities"],
         "market_odds": market["odds"],
         "market_dnb_probabilities": dnb_market["probabilities"],
         "market_dnb_odds": dnb_market["odds"],
+        "market_total_goals_probabilities": total_goals_market["probabilities"],
+        "market_total_goals_odds": total_goals_market["odds"],
+        "market_btts_probabilities": btts_market["probabilities"],
+        "market_btts_odds": btts_market["odds"],
         "shin": {
             "z": market["z"],
             "overround": market["overround"],
             "dnb_z": dnb_market["z"],
             "dnb_overround": dnb_market["overround"],
+            "totals_z": total_goals_market["z"],
+            "totals_overround": total_goals_market["overround"],
+            "btts_z": btts_market["z"],
+            "btts_overround": btts_market["overround"],
         },
     }
 
@@ -373,6 +424,48 @@ def filter_matches_for_league(matches: list[dict], league_url: str) -> list[dict
         for match in matches
         if str(match.get("competition", "")).strip().upper() == normalized_code
     ]
+
+
+def summarize_league_stats(matches: list[dict]) -> dict | None:
+    completed_matches = [
+        match
+        for match in matches
+        if match.get("home_goals") is not None and match.get("away_goals") is not None
+    ]
+    if not completed_matches:
+        return None
+
+    sample_size = len(completed_matches)
+    home_wins = 0
+    draws = 0
+    away_wins = 0
+    total_goals = 0
+    total_home_goals = 0
+    total_away_goals = 0
+
+    for match in completed_matches:
+        home_goals = int(match["home_goals"])
+        away_goals = int(match["away_goals"])
+        total_home_goals += home_goals
+        total_away_goals += away_goals
+        total_goals += home_goals + away_goals
+
+        if home_goals > away_goals:
+            home_wins += 1
+        elif home_goals < away_goals:
+            away_wins += 1
+        else:
+            draws += 1
+
+    return {
+        "matches": sample_size,
+        "avg_goals": round(total_goals / sample_size, 2),
+        "avg_home_goals": round(total_home_goals / sample_size, 2),
+        "avg_away_goals": round(total_away_goals / sample_size, 2),
+        "home_win_pct": round(home_wins / sample_size * 100.0, 1),
+        "draw_pct": round(draws / sample_size * 100.0, 1),
+        "away_win_pct": round(away_wins / sample_size * 100.0, 1),
+    }
 
 
 def league_code_from_url(league_url: str) -> str:
