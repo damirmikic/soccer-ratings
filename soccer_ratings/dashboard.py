@@ -9,9 +9,9 @@ from urllib.parse import parse_qs, urlparse
 from .client import (
     build_and_cache_league_history,
     compare_teams_from_ratings,
+    fetch_all_rankings,
     fetch_country_leagues,
     fetch_league_home_away_ratings,
-    fetch_rankings,
     filter_matches_for_league,
     load_cached_league_history,
     summarize_league_stats,
@@ -20,9 +20,6 @@ from .db import load_league_history_matches
 from .db import (
     import_league_history as import_league_history_to_db,
     load_country_leagues as load_country_leagues_from_db,
-)
-from .db import (
-    load_country_rankings as load_country_rankings_from_db,
 )
 from .db import (
     load_league_home_away_ratings as load_league_home_away_ratings_from_db,
@@ -42,12 +39,7 @@ def _build_dashboard_services():
     def get_countries() -> list[dict]:
         nonlocal countries_cache
         if countries_cache is None:
-            try:
-                countries_cache = load_country_rankings_from_db()
-            except Exception:
-                countries_cache = None
-            if not countries_cache:
-                countries_cache = fetch_rankings()
+            countries_cache = fetch_all_rankings()
         return countries_cache
 
     def get_leagues(country_url: str) -> list[dict]:
@@ -634,7 +626,7 @@ INDEX_HTML = """<!doctype html>
     .controls {
       position: relative;
       display: grid;
-      grid-template-columns: 1fr 1fr auto;
+      grid-template-columns: 1fr 1fr 1fr auto;
       gap: 18px;
       margin-bottom: 16px;
       padding: 18px;
@@ -1272,7 +1264,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     @media (max-width: 920px) {
-      .hero, .controls, .panes, .metric-strip, .status-bar, .matchup-body, .matchup-controls, .matchup-cards, .multi-toolbar, .multi-row, .multi-summary, .history-cache, .league-stats, .team-goal-context {
+      .hero, .controls, .panes, .metric-strip, .status-bar, .matchup-body, .matchup-controls, .matchup-cards, .multi-toolbar, .multi-row, .multi-summary, .history-cache, .league-stats, .team-goal-context, .controls {
         grid-template-columns: 1fr;
       }
 
@@ -1322,9 +1314,15 @@ INDEX_HTML = """<!doctype html>
 
     <section class="controls">
       <div class="control">
+        <label for="continent">Continent</label>
+        <select id="continent" disabled>
+          <option value="">Loading...</option>
+        </select>
+      </div>
+      <div class="control">
         <label for="country">Country</label>
         <select id="country" disabled>
-          <option>Loading countries...</option>
+          <option>Select a continent first</option>
         </select>
       </div>
       <div class="control">
@@ -1527,6 +1525,7 @@ INDEX_HTML = """<!doctype html>
       multiRows: []
     };
 
+    const continentSelect = document.getElementById("continent");
     const countrySelect = document.getElementById("country");
     const leagueSelect = document.getElementById("league");
     const buildHistoryButton = document.getElementById("build-history");
@@ -1640,6 +1639,71 @@ INDEX_HTML = """<!doctype html>
         option.value = item[valueKey];
         select.appendChild(option);
       }
+    }
+
+    function renderCountrySelect(select, items, placeholder) {
+      select.innerHTML = "";
+
+      const placeholderOption = document.createElement("option");
+      placeholderOption.textContent = placeholder;
+      placeholderOption.value = "";
+      select.appendChild(placeholderOption);
+
+      if (!items.length) return;
+
+      const hasContinent = items.some((item) => item.continent);
+      if (!hasContinent) {
+        for (const item of items) {
+          const option = document.createElement("option");
+          option.textContent = item.country;
+          option.value = item.country_path;
+          select.appendChild(option);
+        }
+        return;
+      }
+
+      const grouped = {};
+      for (const item of items) {
+        const key = item.continent || "Other";
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(item);
+      }
+
+      for (const [continent, countries] of Object.entries(grouped)) {
+        const group = document.createElement("optgroup");
+        group.label = continent;
+        for (const item of countries) {
+          const option = document.createElement("option");
+          option.textContent = item.country;
+          option.value = item.country_path;
+          group.appendChild(option);
+        }
+        select.appendChild(group);
+      }
+    }
+
+    function populateContinentSelect(countries) {
+      const continents = [...new Set(countries.map((c) => c.continent).filter(Boolean))];
+      continentSelect.innerHTML = "";
+      const all = document.createElement("option");
+      all.value = "";
+      all.textContent = "All Continents";
+      continentSelect.appendChild(all);
+      for (const name of continents) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        continentSelect.appendChild(opt);
+      }
+      continentSelect.disabled = false;
+    }
+
+    function filterCountriesByContinent(continent) {
+      const filtered = continent
+        ? state.countries.filter((c) => c.continent === continent)
+        : state.countries;
+      renderCountrySelect(countrySelect, filtered, "Choose a country");
+      countrySelect.disabled = !filtered.length;
     }
 
     function renderTeamSelect(select, rows, placeholder) {
@@ -1949,10 +2013,11 @@ INDEX_HTML = """<!doctype html>
       setStatus("Loading countries...");
       const data = await fetchJson("/api/countries");
       state.countries = data.countries;
-      renderSelect(countrySelect, state.countries, "Choose a country", "country", "country_path");
+      populateContinentSelect(state.countries);
+      renderCountrySelect(countrySelect, state.countries, "Choose a country");
       countrySelect.disabled = false;
       updateSummary();
-      setStatus("Choose a country to load its leagues.");
+      setStatus("Choose a continent and country to load leagues.");
     }
 
     async function loadLeagues(countryUrl) {
@@ -2102,6 +2167,33 @@ INDEX_HTML = """<!doctype html>
       state.loadingComparison = false;
       setStatus(`Comparison ready for ${data.home_team.team} vs ${data.away_team.team}.`);
     }
+
+    continentSelect.addEventListener("change", (event) => {
+      const continent = event.target.value;
+      state.selectedCountry = "";
+      state.selectedLeague = "";
+      renderTable(homeTable, []);
+      renderTable(awayTable, []);
+      homeCount.textContent = "0 teams";
+      awayCount.textContent = "0 teams";
+      metricHome.textContent = "0";
+      metricAway.textContent = "0";
+      state.currentRatings = null;
+      state.leagues = [];
+      renderSelect(leagueSelect, [], "Select a country first", "league", "league_path");
+      leagueSelect.disabled = true;
+      buildHistoryButton.disabled = true;
+      importHistoryButton.disabled = true;
+      buildHistoryButton.textContent = "Build Local Cache";
+      importHistoryButton.textContent = "Import To DB";
+      resetComparison();
+      resetMultiBuilder();
+      resetHistoryCacheStatus();
+      resetLeagueStats();
+      updateSummary();
+      filterCountriesByContinent(continent);
+      setStatus(continent ? `Showing ${continent} countries. Choose one to load leagues.` : "Choose a country to load its leagues.");
+    });
 
     countrySelect.addEventListener("change", async (event) => {
       state.selectedCountry = event.target.value;

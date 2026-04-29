@@ -10,6 +10,7 @@ class CountryRating:
     country: str
     rating: float
     country_path: str | None = None
+    continent: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -195,7 +196,7 @@ def _parse_rows(html: str) -> list[ParsedRow]:
     return parser.rows
 
 
-def parse_rankings(html: str) -> list[CountryRating]:
+def parse_rankings(html: str, continent: str | None = None) -> list[CountryRating]:
     rankings: list[CountryRating] = []
     for row in _parse_rows(html):
         if len(row.texts) != 2 or len(row.hrefs) != 1:
@@ -211,6 +212,7 @@ def parse_rankings(html: str) -> list[CountryRating]:
                 country=row.texts[0],
                 rating=rating,
                 country_path=row.hrefs[0],
+                continent=continent,
             )
         )
     return rankings

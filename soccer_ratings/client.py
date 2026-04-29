@@ -36,6 +36,14 @@ DEFAULT_URL = "https://www.soccer-rating.com/football-country-ranking/"
 BASE_URL = "https://www.soccer-rating.com"
 CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache" / "league-history"
 
+CONTINENT_URLS: dict[str, str] = {
+    "Europe": DEFAULT_URL,
+    "Americas": "https://www.soccer-rating.com/football-country-ranking/Americas/",
+    "Asia": "https://www.soccer-rating.com/football-country-ranking/Asia/",
+    "Africa": "https://www.soccer-rating.com/football-country-ranking/Africa/",
+    "Women": "https://www.soccer-rating.com/football-country-ranking/Women/",
+}
+
 
 def fetch_html(
     url: str = DEFAULT_URL,
@@ -75,9 +83,31 @@ def fetch_html(
     raise RuntimeError(f"Failed to fetch HTML from {url}")
 
 
-def fetch_rankings(url: str = DEFAULT_URL) -> list[dict]:
+def fetch_rankings(url: str = DEFAULT_URL, continent: str | None = None) -> list[dict]:
     html = fetch_html(url=url)
-    return [row.to_dict() for row in parse_rankings(html)]
+    return [row.to_dict() for row in parse_rankings(html, continent=continent)]
+
+
+def fetch_all_rankings() -> list[dict]:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    continent_data: dict[str, list[dict]] = {}
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {
+            executor.submit(fetch_rankings, url, continent): continent
+            for continent, url in CONTINENT_URLS.items()
+        }
+        for future in as_completed(futures):
+            continent = futures[future]
+            try:
+                continent_data[continent] = future.result()
+            except Exception:
+                continent_data[continent] = []
+
+    result: list[dict] = []
+    for continent in CONTINENT_URLS:
+        result.extend(continent_data.get(continent, []))
+    return result
 
 
 def fetch_country_leagues(country_url: str) -> list[dict]:
