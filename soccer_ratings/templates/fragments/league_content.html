@@ -1,0 +1,219 @@
+{% set home_count = home | length %}
+{% set away_count = away | length %}
+
+<!-- History cache status + actions -->
+<div class="history-cache">
+  <div id="history-status-inner">
+    {% if history_status and history_status.cached %}
+    <div class="history-cache-meta">
+      Cached: {{ history_status.deduped_match_count }} deduped matches from {{ history_status.team_count }} teams ({{ history_status.raw_match_count }} raw).
+    </div>
+    <div class="history-cache-meta">{{ history_status.cache_path or "" }}</div>
+    {% else %}
+    <div class="history-cache-meta">No cached league history dataset for this league yet.</div>
+    <div class="history-cache-meta"></div>
+    {% endif %}
+  </div>
+  <div class="history-actions">
+    <button
+      hx-get="/fragments/history-build"
+      hx-vals='{"league_url": "{{ league_url }}", "refresh": "1"}'
+      hx-target="#history-status-inner"
+      hx-swap="innerHTML"
+      hx-indicator="#history-spinner">
+      Build Local Cache
+    </button>
+    <button
+      hx-get="/fragments/history-import"
+      hx-vals='{"league_url": "{{ league_url }}"}'
+      hx-target="#history-status-inner"
+      hx-swap="innerHTML"
+      hx-indicator="#history-spinner">
+      Import To DB
+    </button>
+  </div>
+  <span id="history-spinner" class="htmx-indicator" style="font-size:12px;color:var(--muted);align-self:center;">Working&hellip;</span>
+</div>
+
+<!-- League stats strip -->
+<div class="league-stats">
+  <div class="league-stat">
+    <strong>Matches</strong>
+    <span>{% if league_stats %}{{ league_stats.matches }}{% else %}-{% endif %}</span>
+  </div>
+  <div class="league-stat">
+    <strong>Avg Goals</strong>
+    <span>{% if league_stats %}{{ "%.2f"|format(league_stats.avg_goals) }}{% else %}-{% endif %}</span>
+  </div>
+  <div class="league-stat">
+    <strong>Avg Home</strong>
+    <span>{% if league_stats %}{{ "%.2f"|format(league_stats.avg_home_goals) }}{% else %}-{% endif %}</span>
+  </div>
+  <div class="league-stat">
+    <strong>Avg Away</strong>
+    <span>{% if league_stats %}{{ "%.2f"|format(league_stats.avg_away_goals) }}{% else %}-{% endif %}</span>
+  </div>
+  <div class="league-stat">
+    <strong>Home Win %</strong>
+    <span>{% if league_stats %}{{ "%.1f"|format(league_stats.home_win_pct) }}%{% else %}-{% endif %}</span>
+  </div>
+  <div class="league-stat">
+    <strong>Draw %</strong>
+    <span>{% if league_stats %}{{ "%.1f"|format(league_stats.draw_pct) }}%{% else %}-{% endif %}</span>
+  </div>
+  <div class="league-stat">
+    <strong>Away Win %</strong>
+    <span>{% if league_stats %}{{ "%.1f"|format(league_stats.away_win_pct) }}%{% else %}-{% endif %}</span>
+  </div>
+</div>
+
+<!-- Match comparison -->
+<section class="matchup">
+  <div class="tabs">
+    <button class="tab-button is-active" data-tab-target="single">Single Match</button>
+    <button class="tab-button" data-tab-target="multi">Multi Match</button>
+  </div>
+  <div class="matchup-header">
+    <h2>Team Comparison</h2>
+    <span class="matchup-subtitle">Select teams to calculate odds, or build a full round of fixtures.</span>
+  </div>
+
+  <!-- Single match tab -->
+  <div class="tab-panel is-active" data-tab-panel="single">
+    <div class="matchup-body">
+      <div id="comparison-form">
+        <input type="hidden" name="league_url" value="{{ league_url }}">
+        <div class="matchup-controls">
+          <div class="control">
+            <label for="home-team">Home Team</label>
+            <select id="home-team" name="home_team"
+              hx-get="/fragments/compare"
+              hx-trigger="change"
+              hx-target="#comparison-result"
+              hx-include="#comparison-form"
+              hx-indicator="#compare-spinner">
+              <option value="">Choose home team</option>
+              {% for t in home %}
+              <option value="{{ t.team }}">{{ t.team }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="control">
+            <label for="away-team">Away Team</label>
+            <select id="away-team" name="away_team"
+              hx-get="/fragments/compare"
+              hx-trigger="change"
+              hx-target="#comparison-result"
+              hx-include="#comparison-form"
+              hx-indicator="#compare-spinner">
+              <option value="">Choose away team</option>
+              {% for t in away %}
+              <option value="{{ t.team }}">{{ t.team }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="control">
+            <label for="margin">Margin %</label>
+            <input id="margin" name="margin" type="number" min="0" step="0.1" value="0.0"
+              hx-get="/fragments/compare"
+              hx-trigger="change delay:400ms"
+              hx-target="#comparison-result"
+              hx-include="#comparison-form"
+              hx-indicator="#compare-spinner">
+          </div>
+        </div>
+        <div class="market-meta" style="margin-top:8px;">
+          <span id="compare-spinner" class="htmx-indicator">Calculating&hellip;</span>
+        </div>
+      </div>
+      <div class="market-groups" id="comparison-result">
+        <!-- HTMX populates this when teams are selected -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Multi match tab (JS-driven, reads data from script tag below) -->
+  <div class="tab-panel" data-tab-panel="multi">
+    <div class="multi-body">
+      <div class="multi-toolbar">
+        <div class="control">
+          <label for="multi-margin">Multi Margin %</label>
+          <input id="multi-margin" type="number" min="0" step="0.1" value="0.0">
+        </div>
+      </div>
+      <div class="multi-list" id="multi-list">
+        <div class="empty">
+          <strong>No rows yet</strong>
+          Rows will be created automatically from the league size.
+        </div>
+      </div>
+      <div class="multi-summary">
+        <div class="summary-card"><strong>Rows Created</strong><span id="multi-rows-created">0</span></div>
+        <div class="summary-card"><strong>Rows Ready</strong><span id="multi-rows-ready">0</span></div>
+        <div class="summary-card"><strong>Margin</strong><span id="multi-margin-display">0.00%</span></div>
+      </div>
+      <div class="multi-help" id="multi-help">Each row shows 1X2, DNB, O/U 2.5, and BTTS prices for one matchup.</div>
+    </div>
+  </div>
+</section>
+
+<!-- Data for the multi-match JS builder -->
+<script type="application/json" id="league-data">
+  {{ {"league_url": league_url, "home": home, "away": away} | tojson }}
+</script>
+
+<!-- Rating tables -->
+<section class="panes">
+  <article class="pane">
+    <div class="pane-header">
+      <h2>Home Ratings</h2>
+      <span class="count">{{ home_count }} teams</span>
+    </div>
+    <div>
+      {% if home %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Rank</th><th>Team</th><th>Rating</th></tr></thead>
+          <tbody>
+            {% for t in home %}
+            <tr>
+              <td>{{ t.rank }}</td>
+              <td>{{ t.team }}</td>
+              <td>{{ "%.2f"|format(t.rating) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty"><strong>No data</strong>No home ratings available.</div>
+      {% endif %}
+    </div>
+  </article>
+  <article class="pane">
+    <div class="pane-header">
+      <h2>Away Ratings</h2>
+      <span class="count">{{ away_count }} teams</span>
+    </div>
+    <div>
+      {% if away %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Rank</th><th>Team</th><th>Rating</th></tr></thead>
+          <tbody>
+            {% for t in away %}
+            <tr>
+              <td>{{ t.rank }}</td>
+              <td>{{ t.team }}</td>
+              <td>{{ "%.2f"|format(t.rating) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty"><strong>No data</strong>No away ratings available.</div>
+      {% endif %}
+    </div>
+  </article>
+</section>

@@ -9,6 +9,21 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.3" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous"></script>
+  <style>
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator { display: inline; }
+    .htmx-request.htmx-indicator { display: inline; }
+    #league-content { min-height: 40px; }
+    #league-loading {
+      display: none;
+      padding: 32px 20px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .htmx-request #league-loading { display: block; }
+    .htmx-request #league-content > *:not(#league-loading) { opacity: 0.4; pointer-events: none; }
+  </style>
 </head>
 <body>
   <main class="shell">
@@ -23,16 +38,16 @@
         </div>
         <div class="metric-strip">
           <div class="metric">
-            <span class="metric-label">Selection State</span>
-            <span class="metric-value" id="metric-selection">Idle</span>
+            <span class="metric-label">Continents</span>
+            <span class="metric-value">{{ continents | length }}</span>
           </div>
           <div class="metric">
-            <span class="metric-label">Home Teams</span>
-            <span class="metric-value" id="metric-home">0</span>
+            <span class="metric-label">Countries</span>
+            <span class="metric-value">{{ total_countries }}</span>
           </div>
           <div class="metric">
-            <span class="metric-label">Away Teams</span>
-            <span class="metric-value" id="metric-away">0</span>
+            <span class="metric-label">Status</span>
+            <span class="metric-value" id="status-metric">Ready</span>
           </div>
         </div>
       </div>
@@ -45,206 +60,104 @@
     </section>
 
     <section class="controls">
+      <!-- Continent filter: reloads country options via HTMX -->
       <div class="control">
         <label for="continent">Continent</label>
-        <select id="continent" disabled>
-          <option value="">Loading...</option>
+        <select id="continent" name="continent"
+          hx-get="/fragments/country-options"
+          hx-trigger="change"
+          hx-target="#country"
+          hx-swap="innerHTML"
+          hx-on:htmx:after-swap="resetLeagueContent()">
+          <option value="">All Continents</option>
+          {% for continent in continents %}
+          <option value="{{ continent }}">{{ continent }}</option>
+          {% endfor %}
         </select>
       </div>
+
+      <!-- Country select: populated server-side on load, updated via HTMX on continent change -->
       <div class="control">
         <label for="country">Country</label>
-        <select id="country" disabled>
-          <option>Select a continent first</option>
+        <select id="country" name="country_url"
+          hx-get="/fragments/league-options"
+          hx-trigger="change"
+          hx-target="#league"
+          hx-swap="innerHTML"
+          hx-on:htmx:after-swap="resetLeagueContent()">
+          <option value="">Choose a country</option>
+          {% for continent_name, continent_countries in countries_grouped.items() %}
+          <optgroup label="{{ continent_name }}">
+            {% for c in continent_countries %}
+            <option value="{{ c.country_path }}">{{ c.country }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endfor %}
         </select>
-        <button id="import-country" disabled style="margin-top:4px;">Import Country to DB</button>
+        <button id="import-country-btn"
+          style="margin-top:4px;"
+          hx-get="/fragments/country-import"
+          hx-include="#country"
+          hx-target="#country-import-status"
+          hx-swap="innerHTML"
+          hx-indicator="#country-import-btn"
+          onclick="this.textContent='Importing…'">
+          Import Country to DB
+        </button>
+        <span id="country-import-status" style="font-size:11px;color:var(--muted);"></span>
       </div>
+
+      <!-- League select: populated by HTMX when country changes, triggers full league content load -->
       <div class="control">
         <label for="league">League</label>
-        <select id="league" disabled>
-          <option>Select a country first</option>
+        <select id="league" name="league_url"
+          hx-get="/fragments/league-content"
+          hx-trigger="change"
+          hx-target="#league-content"
+          hx-swap="innerHTML"
+          hx-indicator="#league-content">
+          <option value="">Select a country first</option>
         </select>
       </div>
-      <div class="control">
-        <label for="build-history">League History</label>
-        <div class="history-actions">
-          <button id="build-history" disabled>Build Local Cache</button>
-          <button id="import-history" disabled>Import To DB</button>
-        </div>
-      </div>
     </section>
 
-    <div class="status-bar">
-      <div class="status" id="status">Preparing dashboard...</div>
-      <div class="selection-pill" id="selection-pill">No league selected</div>
+    <!-- League content: empty on load, replaced by HTMX when a league is selected -->
+    <div id="league-content">
+      <div id="league-loading">Loading league data&hellip;</div>
+      <div class="history-cache" style="opacity:0.3;">
+        <div class="history-cache-meta">Select a league to view history status.</div>
+        <div class="history-cache-meta"></div>
+      </div>
+      <div class="league-stats" style="opacity:0.3;">
+        <div class="league-stat"><strong>Matches</strong><span>-</span></div>
+        <div class="league-stat"><strong>Avg Goals</strong><span>-</span></div>
+        <div class="league-stat"><strong>Avg Home</strong><span>-</span></div>
+        <div class="league-stat"><strong>Avg Away</strong><span>-</span></div>
+        <div class="league-stat"><strong>Home Win %</strong><span>-</span></div>
+        <div class="league-stat"><strong>Draw %</strong><span>-</span></div>
+        <div class="league-stat"><strong>Away Win %</strong><span>-</span></div>
+      </div>
     </div>
-
-    <div class="history-cache">
-      <div class="history-cache-meta" id="history-cache-meta">No league history cache yet.</div>
-      <div class="history-cache-meta" id="history-cache-path"></div>
-    </div>
-
-    <div class="league-stats" id="league-stats">
-      <div class="league-stat"><strong>Matches</strong><span id="league-matches">-</span></div>
-      <div class="league-stat"><strong>Avg Goals</strong><span id="league-avg-goals">-</span></div>
-      <div class="league-stat"><strong>Avg Home</strong><span id="league-avg-home-goals">-</span></div>
-      <div class="league-stat"><strong>Avg Away</strong><span id="league-avg-away-goals">-</span></div>
-      <div class="league-stat"><strong>Home Win %</strong><span id="league-home-win-pct">-</span></div>
-      <div class="league-stat"><strong>Draw %</strong><span id="league-draw-pct">-</span></div>
-      <div class="league-stat"><strong>Away Win %</strong><span id="league-away-win-pct">-</span></div>
-    </div>
-
-    <section class="matchup">
-      <div class="tabs">
-        <button class="tab-button is-active" data-tab-target="single">Single Match</button>
-        <button class="tab-button" data-tab-target="multi">Multi Match</button>
-      </div>
-      <div class="matchup-header">
-        <h2>Team Comparison</h2>
-        <span class="matchup-subtitle">Use one match or build a multi from the selected league.</span>
-      </div>
-      <div class="tab-panel is-active" data-tab-panel="single">
-        <div class="matchup-body">
-          <div>
-            <div class="matchup-controls">
-              <div class="control">
-                <label for="home-team">Home Team</label>
-                <select id="home-team" disabled>
-                  <option>Load league ratings first</option>
-                </select>
-              </div>
-              <div class="control">
-                <label for="away-team">Away Team</label>
-                <select id="away-team" disabled>
-                  <option>Load league ratings first</option>
-                </select>
-              </div>
-              <div class="control">
-                <label for="margin">Margin %</label>
-                <input id="margin" type="number" min="0" step="0.1" value="0.0">
-              </div>
-            </div>
-            <div class="rating-gap">
-              <span>Home team home rating: <strong id="selected-home-rating">-</strong></span>
-              <span>Away team away rating: <strong id="selected-away-rating">-</strong></span>
-              <span>Rating gap: <strong id="rating-gap">-</strong></span>
-            </div>
-            <div class="team-goal-context">
-              <div class="team-goal-card">
-                <strong>Home Team Goal Profile</strong>
-                <span id="home-team-goal-profile">-</span>
-                <small id="home-team-goal-sample">No history sample yet.</small>
-              </div>
-              <div class="team-goal-card">
-                <strong>Away Team Goal Profile</strong>
-                <span id="away-team-goal-profile">-</span>
-                <small id="away-team-goal-sample">No history sample yet.</small>
-              </div>
-            </div>
-            <div class="market-meta" id="market-meta">Fair odds with 0.00% margin.</div>
-          </div>
-          <div class="market-groups" id="matchup-cards">
-            <section class="market-group">
-              <div class="market-group-header">
-                <h3 class="market-group-title">1X2</h3>
-                <span class="market-group-note">Match Result</span>
-              </div>
-              <table class="market-table">
-                <thead>
-                  <tr><th>Market</th><th>Prob.</th><th>Odds</th></tr>
-                </thead>
-                <tbody>
-                  <tr><td class="market-name">Home Win</td><td class="market-prob" id="home-win-prob">-</td><td class="market-price" id="home-win-odds">-</td></tr>
-                  <tr><td class="market-name">Draw</td><td class="market-prob" id="draw-prob">-</td><td class="market-price" id="draw-odds">-</td></tr>
-                  <tr><td class="market-name">Away Win</td><td class="market-prob" id="away-win-prob">-</td><td class="market-price" id="away-win-odds">-</td></tr>
-                </tbody>
-              </table>
-            </section>
-            <section class="market-group">
-              <div class="market-group-header">
-                <h3 class="market-group-title">DNB</h3>
-                <span class="market-group-note">Draw No Bet</span>
-              </div>
-              <table class="market-table">
-                <thead>
-                  <tr><th>Market</th><th>Prob.</th><th>Odds</th></tr>
-                </thead>
-                <tbody>
-                  <tr><td class="market-name">Home DNB</td><td class="market-prob" id="home-dnb-prob">-</td><td class="market-price" id="home-dnb-odds">-</td></tr>
-                  <tr><td class="market-name">Away DNB</td><td class="market-prob" id="away-dnb-prob">-</td><td class="market-price" id="away-dnb-odds">-</td></tr>
-                </tbody>
-              </table>
-            </section>
-            <section class="market-group">
-              <div class="market-group-header">
-                <h3 class="market-group-title">Goals &amp; BTTS</h3>
-                <span class="market-group-note">Poisson View</span>
-              </div>
-              <table class="market-table">
-                <thead>
-                  <tr><th>Market</th><th>Prob.</th><th>Odds</th></tr>
-                </thead>
-                <tbody>
-                  <tr><td class="market-name">Over 2.5</td><td class="market-prob" id="over-25-prob">-</td><td class="market-price" id="over-25-odds">-</td></tr>
-                  <tr><td class="market-name">Under 2.5</td><td class="market-prob" id="under-25-prob">-</td><td class="market-price" id="under-25-odds">-</td></tr>
-                  <tr><td class="market-name">BTTS Yes</td><td class="market-prob" id="btts-yes-prob">-</td><td class="market-price" id="btts-yes-odds">-</td></tr>
-                  <tr><td class="market-name">BTTS No</td><td class="market-prob" id="btts-no-prob">-</td><td class="market-price" id="btts-no-odds">-</td></tr>
-                </tbody>
-              </table>
-            </section>
-          </div>
-        </div>
-      </div>
-      <div class="tab-panel" data-tab-panel="multi">
-        <div class="multi-body">
-          <div class="multi-toolbar">
-            <div class="control">
-              <label for="multi-margin">Multi Margin %</label>
-              <input id="multi-margin" type="number" min="0" step="0.1" value="0.0">
-            </div>
-          </div>
-          <div class="multi-list" id="multi-list">
-            <div class="empty">
-              <strong>No rows yet</strong>
-              Load a league and rows will be created automatically from the league size.
-            </div>
-          </div>
-          <div class="multi-summary">
-            <div class="summary-card">
-              <strong>Rows Created</strong>
-              <span id="multi-rows-created">0</span>
-            </div>
-            <div class="summary-card">
-              <strong>Rows Ready</strong>
-              <span id="multi-rows-ready">0</span>
-            </div>
-            <div class="summary-card">
-              <strong>Margin</strong>
-              <span id="multi-margin-display">0.00%</span>
-            </div>
-          </div>
-          <div class="multi-help" id="multi-help">Each row shows `1`, `X`, `2`, `Home DNB`, and `Away DNB` for one matchup from the selected league.</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panes">
-      <article class="pane">
-        <div class="pane-header">
-          <h2>Home Ratings</h2>
-          <span class="count" id="home-count">0 teams</span>
-        </div>
-        <div id="home-table"></div>
-      </article>
-      <article class="pane">
-        <div class="pane-header">
-          <h2>Away Ratings</h2>
-          <span class="count" id="away-count">0 teams</span>
-        </div>
-        <div id="away-table"></div>
-      </article>
-    </section>
   </main>
 
   <script src="/static/app.js"></script>
+  <script>
+    function resetLeagueContent() {
+      const el = document.getElementById("league-content");
+      if (el) el.innerHTML = "";
+      document.getElementById("status-metric").textContent = "Ready";
+    }
+
+    document.getElementById("import-country-btn").addEventListener("htmx:afterRequest", function () {
+      this.textContent = "Import Country to DB";
+    });
+
+    document.getElementById("league").addEventListener("htmx:beforeRequest", function () {
+      document.getElementById("status-metric").textContent = "Loading…";
+    });
+    document.getElementById("league").addEventListener("htmx:afterSettle", function () {
+      document.getElementById("status-metric").textContent = "Live";
+    });
+  </script>
 </body>
 </html>

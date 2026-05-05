@@ -1,0 +1,12 @@
+{% if error %}
+<div class="history-cache-meta">Error: {{ error }}</div>
+<div class="history-cache-meta"></div>
+{% elif status and (status.cached or imported) %}
+<div class="history-cache-meta">
+  Cached: {{ status.deduped_match_count }} deduped matches from {{ status.team_count }} teams ({{ status.raw_match_count }} raw).{% if imported %} Imported to DB.{% endif %}
+</div>
+<div class="history-cache-meta">{{ status.cache_path or "" }}</div>
+{% else %}
+<div class="history-cache-meta">No cached league history dataset for this league yet.</div>
+<div class="history-cache-meta"></div>
+{% endif %}

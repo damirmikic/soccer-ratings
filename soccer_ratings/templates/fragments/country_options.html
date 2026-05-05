@@ -1,0 +1,8 @@
+<option value="">Choose a country</option>
+{% for continent_name, continent_countries in grouped.items() %}
+<optgroup label="{{ continent_name }}">
+  {% for c in continent_countries %}
+  <option value="{{ c.country_path }}">{{ c.country }}</option>
+  {% endfor %}
+</optgroup>
+{% endfor %}
