@@ -1,0 +1,4 @@
+<option value="">Choose a league</option>
+{% for league in leagues %}
+<option value="{{ league.league_path }}">{{ league.league }}</option>
+{% endfor %}

@@ -35,16 +35,35 @@ class DashboardBindError(RuntimeError):
 # Legacy ThreadingHTTPServer handler (used by `python app.py dashboard`)
 # ---------------------------------------------------------------------------
 
+def _render_index_html(services: DashboardServices) -> str:
+    from jinja2 import Environment, FileSystemLoader
+
+    env = Environment(loader=FileSystemLoader(str(_TEMPLATES_DIR)), autoescape=True)
+    template = env.get_template("index.html")
+    try:
+        countries = services.get_countries()
+    except Exception:
+        countries = []
+    continents = sorted({c["continent"] for c in countries if c.get("continent")})
+    grouped: dict[str, list] = {}
+    for c in countries:
+        grouped.setdefault(c.get("continent") or "Other", []).append(c)
+    return template.render(
+        continents=continents,
+        countries_grouped=grouped,
+        total_countries=len(countries),
+    )
+
+
 def create_dashboard_handler() -> type[BaseHTTPRequestHandler]:
     services = DashboardServices()
-    index_html = (_TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
 
     class DashboardHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
 
             if parsed.path == "/":
-                self._send_html(index_html)
+                self._send_html(_render_index_html(services))
                 return
 
             if parsed.path == "/favicon.svg":
@@ -220,27 +239,48 @@ def create_dashboard_handler() -> type[BaseHTTPRequestHandler]:
 # ---------------------------------------------------------------------------
 
 def create_dashboard_app():
-    from fastapi import FastAPI
-    from fastapi.responses import PlainTextResponse, Response
+    from fastapi import FastAPI, Request
+    from fastapi.responses import HTMLResponse, PlainTextResponse, Response
     from fastapi.staticfiles import StaticFiles
+    from fastapi.templating import Jinja2Templates
 
     from .routes.compare import router as compare_router
     from .routes.countries import router as countries_router
+    from .routes.fragments import router as fragments_router
     from .routes.history import router as history_router
 
     app = FastAPI(title="Soccer Ratings Dashboard")
     app.state.services = DashboardServices()
+
+    templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     app.include_router(countries_router)
     app.include_router(compare_router)
     app.include_router(history_router)
+    app.include_router(fragments_router)
 
-    @app.get("/", response_class=Response)
-    def index() -> Response:
-        html = (_TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
-        return Response(content=html, media_type="text/html")
+    @app.get("/", response_class=HTMLResponse)
+    def index(request: Request) -> HTMLResponse:
+        svc: DashboardServices = app.state.services
+        try:
+            countries = svc.get_countries()
+        except Exception:
+            countries = []
+        continents = sorted({c["continent"] for c in countries if c.get("continent")})
+        grouped: dict[str, list] = {}
+        for c in countries:
+            grouped.setdefault(c.get("continent") or "Other", []).append(c)
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "continents": continents,
+                "countries_grouped": grouped,
+                "total_countries": len(countries),
+            },
+        )
 
     @app.get("/health", response_class=PlainTextResponse)
     def health() -> str:

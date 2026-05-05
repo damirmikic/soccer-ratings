@@ -1,0 +1,116 @@
+{% set hc = d.historical_context %}
+{% set tgc = d.team_goal_context %}
+
+<div class="rating-gap">
+  <span>Home rating: <strong>{{ "%.2f"|format(d.home_team.rating) }}</strong></span>
+  <span>Away rating: <strong>{{ "%.2f"|format(d.away_team.rating) }}</strong></span>
+  <span>Gap: <strong>{{ "%.2f"|format(d.rating_gap) }}</strong></span>
+</div>
+
+{% if tgc %}
+<div class="team-goal-context">
+  <div class="team-goal-card">
+    <strong>Home Team Goal Profile</strong>
+    <span>{{ "%.2f"|format(tgc.home_team_home_scored) }} scored &middot; {{ "%.2f"|format(tgc.home_team_home_conceded) }} conceded</span>
+    <small>{{ tgc.home_team_home_sample }} home matches in history sample</small>
+  </div>
+  <div class="team-goal-card">
+    <strong>Away Team Goal Profile</strong>
+    <span>{{ "%.2f"|format(tgc.away_team_away_scored) }} scored &middot; {{ "%.2f"|format(tgc.away_team_away_conceded) }} conceded</span>
+    <small>{{ tgc.away_team_away_sample }} away matches in history sample</small>
+  </div>
+</div>
+{% endif %}
+
+<p class="market-meta">
+  Shin margin {{ "%.2f"|format(d.margin_percent) }}%
+  &middot; 1X2 overround {{ "%.2f"|format(d.shin.overround * 100) }}%
+  &middot; z {{ "%.4f"|format(d.shin.z) }}
+  {% if hc %}
+  &middot; {{ d.history_source }} history &middot; {{ hc.sample_size }} completed matches
+  &middot; exp goals {{ "%.2f"|format(d.expected_goals.home) }}&ndash;{{ "%.2f"|format(d.expected_goals.away) }}
+  {% else %}
+  &middot; rating-only model
+  {% endif %}
+</p>
+
+<section class="market-group">
+  <div class="market-group-header">
+    <h3 class="market-group-title">1X2</h3>
+    <span class="market-group-note">Match Result</span>
+  </div>
+  <table class="market-table">
+    <thead><tr><th>Market</th><th>Prob.</th><th>Odds</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="market-name">Home Win</td>
+        <td class="market-prob">{{ "%.1f"|format(d.probabilities.home * 100) }}%</td>
+        <td class="market-price">{{ "%.2f"|format(d.market_odds.home) }}</td>
+      </tr>
+      <tr>
+        <td class="market-name">Draw</td>
+        <td class="market-prob">{{ "%.1f"|format(d.probabilities.draw * 100) }}%</td>
+        <td class="market-price">{{ "%.2f"|format(d.market_odds.draw) }}</td>
+      </tr>
+      <tr>
+        <td class="market-name">Away Win</td>
+        <td class="market-prob">{{ "%.1f"|format(d.probabilities.away * 100) }}%</td>
+        <td class="market-price">{{ "%.2f"|format(d.market_odds.away) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="market-group">
+  <div class="market-group-header">
+    <h3 class="market-group-title">DNB</h3>
+    <span class="market-group-note">Draw No Bet</span>
+  </div>
+  <table class="market-table">
+    <thead><tr><th>Market</th><th>Prob.</th><th>Odds</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="market-name">Home DNB</td>
+        <td class="market-prob">{{ "%.1f"|format(d.dnb_probabilities.home * 100) }}%</td>
+        <td class="market-price">{{ "%.2f"|format(d.market_dnb_odds.home) }}</td>
+      </tr>
+      <tr>
+        <td class="market-name">Away DNB</td>
+        <td class="market-prob">{{ "%.1f"|format(d.dnb_probabilities.away * 100) }}%</td>
+        <td class="market-price">{{ "%.2f"|format(d.market_dnb_odds.away) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="market-group">
+  <div class="market-group-header">
+    <h3 class="market-group-title">Goals &amp; BTTS</h3>
+    <span class="market-group-note">Poisson View</span>
+  </div>
+  <table class="market-table">
+    <thead><tr><th>Market</th><th>Prob.</th><th>Odds</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="market-name">Over 2.5</td>
+        <td class="market-prob">{{ "%.1f"|format(d.total_goals_probabilities.over * 100) }}%</td>
+        <td class="market-price">{{ "%.2f"|format(d.market_total_goals_odds.over) }}</td>
+      </tr>
+      <tr>
+        <td class="market-name">Under 2.5</td>
+        <td class="market-prob">{{ "%.1f"|format(d.total_goals_probabilities.under * 100) }}%</td>
+        <td class="market-price">{{ "%.2f"|format(d.market_total_goals_odds.under) }}</td>
+      </tr>
+      <tr>
+        <td class="market-name">BTTS Yes</td>
+        <td class="market-prob">{{ "%.1f"|format(d.btts_probabilities.yes * 100) }}%</td>
+        <td class="market-price">{{ "%.2f"|format(d.market_btts_odds.yes) }}</td>
+      </tr>
+      <tr>
+        <td class="market-name">BTTS No</td>
+        <td class="market-prob">{{ "%.1f"|format(d.btts_probabilities.no * 100) }}%</td>
+        <td class="market-price">{{ "%.2f"|format(d.market_btts_odds.no) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</section>

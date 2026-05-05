@@ -1,4 +1,5 @@
 aiofiles
 fastapi
+jinja2
 psycopg[binary]
 uvicorn[standard]
