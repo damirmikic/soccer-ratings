@@ -7,6 +7,8 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from fastapi import Request
+
 from .services import DashboardServices
 
 _TEMPLATES_DIR = pathlib.Path(__file__).parent / "templates"
@@ -239,7 +241,7 @@ def create_dashboard_handler() -> type[BaseHTTPRequestHandler]:
 # ---------------------------------------------------------------------------
 
 def create_dashboard_app():
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI
     from fastapi.responses import HTMLResponse, PlainTextResponse, Response
     from fastapi.staticfiles import StaticFiles
     from fastapi.templating import Jinja2Templates
@@ -273,9 +275,9 @@ def create_dashboard_app():
         for c in countries:
             grouped.setdefault(c.get("continent") or "Other", []).append(c)
         return templates.TemplateResponse(
+            request,
             "index.html",
             {
-                "request": request,
                 "continents": continents,
                 "countries_grouped": grouped,
                 "total_countries": len(countries),

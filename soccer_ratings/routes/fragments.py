@@ -27,8 +27,9 @@ def country_options(request: Request, continent: str = Query("")) -> HTMLRespons
     for c in countries:
         grouped.setdefault(c.get("continent") or "Other", []).append(c)
     return _templates.TemplateResponse(
+        request,
         "fragments/country_options.html",
-        {"request": request, "grouped": grouped},
+        {"grouped": grouped},
     )
 
 
@@ -36,8 +37,9 @@ def country_options(request: Request, continent: str = Query("")) -> HTMLRespons
 def league_options(request: Request, country_url: str = Query(...)) -> HTMLResponse:
     leagues = _svc(request).get_leagues(country_url)
     return _templates.TemplateResponse(
+        request,
         "fragments/league_options.html",
-        {"request": request, "leagues": leagues},
+        {"leagues": leagues},
     )
 
 
@@ -48,9 +50,9 @@ def league_content(request: Request, league_url: str = Query(...)) -> HTMLRespon
     home = ratings.get("home", [])
     away = ratings.get("away", [])
     return _templates.TemplateResponse(
+        request,
         "fragments/league_content.html",
         {
-            "request": request,
             "league_url": league_url,
             "home": home,
             "away": away,
@@ -80,8 +82,9 @@ def compare(
     except Exception:
         return HTMLResponse('<p class="market-meta">Could not calculate comparison — check team selection.</p>')
     return _templates.TemplateResponse(
+        request,
         "fragments/comparison.html",
-        {"request": request, "d": data},
+        {"d": data},
     )
 
 
@@ -94,13 +97,15 @@ def history_build(
     try:
         status = _svc(request).build_history_cache(league_url, bool(refresh))
         return _templates.TemplateResponse(
+            request,
             "fragments/history_status.html",
-            {"request": request, "status": status},
+            {"status": status},
         )
     except Exception as exc:
         return _templates.TemplateResponse(
+            request,
             "fragments/history_status.html",
-            {"request": request, "error": str(exc)},
+            {"error": str(exc)},
         )
 
 
@@ -109,13 +114,15 @@ def history_import(request: Request, league_url: str = Query(...)) -> HTMLRespon
     try:
         status = _svc(request).import_history_to_db(league_url)
         return _templates.TemplateResponse(
+            request,
             "fragments/history_status.html",
-            {"request": request, "status": status, "imported": True},
+            {"status": status, "imported": True},
         )
     except Exception as exc:
         return _templates.TemplateResponse(
+            request,
             "fragments/history_status.html",
-            {"request": request, "error": str(exc)},
+            {"error": str(exc)},
         )
 
 
