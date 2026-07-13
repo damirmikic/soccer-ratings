@@ -12,3 +12,5 @@ services:
         sync: false
       - key: DIRECT_DATABASE_URL
         sync: false
+      - key: ADMIN_TOKEN
+        sync: false
