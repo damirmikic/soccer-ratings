@@ -819,6 +819,55 @@ td:last-child {
   font-weight: 700;
 }
 
+/* Logo Header styles */
+.brand-header {
+  margin-bottom: 24px;
+}
+
+.brand-logo-container {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.brand-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-2);
+  padding: 6px 14px 6px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.brand-chart-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.brand-wordmark {
+  font-family: "Barlow", "Inter", sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.brand-tagline {
+  font-family: "Inter", sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-left: 8px;
+}
+
+
 @media (max-width: 920px) {
   .hero, .controls, .panes, .metric-strip, .status-bar, .matchup-body, .matchup-controls, .matchup-cards, .multi-toolbar, .multi-row, .multi-summary, .history-cache, .league-stats, .team-goal-context, .controls {
     grid-template-columns: 1fr;

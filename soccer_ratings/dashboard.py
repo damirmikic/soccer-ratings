@@ -14,17 +14,24 @@ from .services import DashboardServices
 _TEMPLATES_DIR = pathlib.Path(__file__).parent / "templates"
 _STATIC_DIR = pathlib.Path(__file__).parent / "static"
 
-FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <rect x="4" y="16" width="6" height="12" rx="1.5" fill="url(#fav-1)"/>
+  <rect x="13" y="6" width="6" height="22" rx="1.5" fill="url(#fav-x)"/>
+  <rect x="22" y="11" width="6" height="17" rx="1.5" fill="url(#fav-2)"/>
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="fav-1" x1="4" y1="16" x2="10" y2="28" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#ef233c" />
-      <stop offset="100%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#d90429" />
+    </linearGradient>
+    <linearGradient id="fav-x" x1="13" y1="6" x2="19" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#94a3b8" />
+      <stop offset="100%" stop-color="#475569" />
+    </linearGradient>
+    <linearGradient id="fav-2" x1="22" y1="11" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#0284c7" />
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="16" fill="#0f172a" />
-  <rect x="4" y="4" width="56" height="56" rx="13" fill="url(#bg)" />
-  <circle cx="32" cy="32" r="16" fill="#ffffff" />
-  <path d="M32 20l6 4-2 7h-8l-2-7 6-4zm-9 15h6l2 6-5 4-6-4 3-6zm18 0h6l3 6-6 4-5-4 2-6zm-9 9 5 4-2 6h-6l-2-6 5-4z" fill="#111827" />
 </svg>
 """
 
@@ -251,7 +258,10 @@ def create_dashboard_app():
     from .routes.fragments import router as fragments_router
     from .routes.history import router as history_router
 
-    app = FastAPI(title="Soccer Ratings Dashboard")
+    app = FastAPI(
+        title="ratings1x2",
+        description="soccer match ratings",
+    )
     app.state.services = DashboardServices()
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
