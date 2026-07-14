@@ -308,6 +308,7 @@ Inside the dashboard you can:
 - see implied `home / draw / away` probabilities and decimal odds
 - switch to a `Multi Match` tab where rows are auto-created from the league size
 - use each row to choose home and away teams and instantly see `1`, `X`, `2`, `Home DNB`, and `Away DNB`
+- click `Export CSV` on the Multi Match tab to download the current rows (1X2/DNB/O-U/BTTS odds) as a `.csv` file, ready to paste into a spreadsheet — rows with no teams selected yet are skipped
 - build and refresh a cached league-history dataset for the currently selected league
 
 For larger imports, prefer the Postgres CLI commands over the dashboard button so you do not need to build history one league at a time.

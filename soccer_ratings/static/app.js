@@ -252,6 +252,55 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+// ---------------------------------------------------------------------------
+// Multi-match CSV export
+// ---------------------------------------------------------------------------
+
+const MULTI_CSV_HEADERS = ["Home Team", "Away Team", "1", "X", "2", "DNB 1", "DNB 2", "O2.5", "U2.5", "BTTS Y", "BTTS N"];
+const MULTI_CSV_MARKETS = ["1", "X", "2", "DNB1", "DNB2", "O25", "U25", "BTTSY", "BTTSN"];
+
+function csvField(value) {
+  const str = String(value ?? "");
+  return /[",\r\n]/.test(str) ? `"${str.replaceAll('"', '""')}"` : str;
+}
+
+// Pure and DOM-free so it can be exercised directly in a JS console/test
+// runner without needing a browser: rows in, CSV text out.
+function buildMultiRowsCsv(rows) {
+  const lines = [MULTI_CSV_HEADERS.map(csvField).join(",")];
+  for (const row of rows) {
+    if (!row.homeTeam && !row.awayTeam) continue;
+    const cells = [row.homeTeam, row.awayTeam, ...MULTI_CSV_MARKETS.map((market) => fmtOdds(row, market))];
+    lines.push(cells.map(csvField).join(","));
+  }
+  return lines.join("\r\n");
+}
+
+function slugifyLeagueUrl(url) {
+  const slug = (url || "").replace(/^\/+|\/+$/g, "").replace(/\//g, "-");
+  return slug || "league";
+}
+
+function downloadTextFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+document.addEventListener("click", (e) => {
+  if (!e.target || e.target.id !== "multi-export-csv") return;
+  const csv = buildMultiRowsCsv(multiState.rows);
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const filename = `multi-match-odds-${slugifyLeagueUrl(multiState.leagueUrl)}-${dateStr}.csv`;
+  downloadTextFile(filename, csv, "text/csv;charset=utf-8;");
+});
+
 async function fetchJson(url) {
   const res = await fetch(url);
   if (!res.ok) {
