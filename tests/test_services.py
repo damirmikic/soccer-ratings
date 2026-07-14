@@ -10,6 +10,63 @@ class CacheWiringTests(unittest.TestCase):
         self.assertEqual(svc._countries_cache._ttl, 12 * 3600)
         self.assertEqual(svc._leagues_cache._ttl, 12 * 3600)
         self.assertEqual(svc._ratings_cache._ttl, 6 * 3600)
+        self.assertEqual(svc._known_leagues_cache._ttl, 6 * 3600)
+
+
+class GetKnownLeaguesByCountryTests(unittest.TestCase):
+    @mock.patch("soccer_ratings.services.fetch_country_leagues")
+    @mock.patch("soccer_ratings.services.load_country_leagues_from_db")
+    @mock.patch("soccer_ratings.services.fetch_all_rankings")
+    def test_omits_countries_with_no_imported_leagues_without_scraping(
+        self, mock_countries, mock_load_db, mock_fetch_live
+    ) -> None:
+        mock_countries.return_value = [
+            {"country": "England", "country_path": "/England/", "continent": "Europe"},
+            {"country": "Nowhere", "country_path": "/Nowhere/", "continent": "Europe"},
+        ]
+        mock_load_db.side_effect = lambda country_url, *a, **kw: (
+            [{"league": "Premier League", "league_path": "/England/Premier-League/"}]
+            if country_url == "/England/"
+            else []
+        )
+
+        svc = DashboardServices()
+        result = svc.get_known_leagues_by_country()
+
+        self.assertEqual(
+            result,
+            {"/England/": [{"league": "Premier League", "league_path": "/England/Premier-League/"}]},
+        )
+        mock_fetch_live.assert_not_called()
+
+    @mock.patch("soccer_ratings.services.load_country_leagues_from_db")
+    @mock.patch("soccer_ratings.services.fetch_all_rankings")
+    def test_logs_and_omits_country_on_db_failure(self, mock_countries, mock_load_db) -> None:
+        mock_countries.return_value = [
+            {"country": "England", "country_path": "/England/", "continent": "Europe"},
+        ]
+        mock_load_db.side_effect = RuntimeError("db down")
+
+        svc = DashboardServices()
+        with self.assertLogs("soccer_ratings.services", level="WARNING") as logs:
+            result = svc.get_known_leagues_by_country()
+
+        self.assertEqual(result, {})
+        self.assertTrue(any("db down" in message for message in logs.output))
+
+    @mock.patch("soccer_ratings.services.load_country_leagues_from_db")
+    @mock.patch("soccer_ratings.services.fetch_all_rankings")
+    def test_caches_result_across_calls(self, mock_countries, mock_load_db) -> None:
+        mock_countries.return_value = [
+            {"country": "England", "country_path": "/England/", "continent": "Europe"},
+        ]
+        mock_load_db.return_value = [{"league": "Premier League", "league_path": "/England/Premier-League/"}]
+
+        svc = DashboardServices()
+        svc.get_known_leagues_by_country()
+        svc.get_known_leagues_by_country()
+
+        self.assertEqual(mock_load_db.call_count, 1)
 
 
 class GetContinentForCountryTests(unittest.TestCase):

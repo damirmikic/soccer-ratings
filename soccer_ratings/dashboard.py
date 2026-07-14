@@ -7,7 +7,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fastapi import Request
 
 from .services import DashboardServices
+from .sitemap import build_sitemap_xml
 from .timeutil import format_relative_time
+from .urlstate import build_share_url
 
 _TEMPLATES_DIR = pathlib.Path(__file__).parent / "templates"
 _STATIC_DIR = pathlib.Path(__file__).parent / "static"
@@ -184,8 +186,36 @@ def create_dashboard_app():
         return "ok"
 
     @app.get("/robots.txt", response_class=PlainTextResponse)
-    def robots() -> str:
-        return ROBOTS_TXT
+    def robots(request: Request) -> str:
+        sitemap_url = str(request.base_url).rstrip("/") + "/sitemap.xml"
+        return f"{ROBOTS_TXT}\nSitemap: {sitemap_url}\n"
+
+    @app.get("/sitemap.xml")
+    def sitemap(request: Request) -> Response:
+        svc: DashboardServices = app.state.services
+        base_url = str(request.base_url).rstrip("/")
+
+        urls = [base_url + "/"]
+        try:
+            countries = svc.get_countries()
+        except Exception:
+            countries = []
+        for country in countries:
+            country_url = country.get("country_path")
+            if country_url:
+                urls.append(base_url + build_share_url(country=country_url))
+
+        try:
+            leagues_by_country = svc.get_known_leagues_by_country()
+        except Exception:
+            leagues_by_country = {}
+        for country_url, leagues in leagues_by_country.items():
+            for league in leagues:
+                league_url = league.get("league_path")
+                if league_url:
+                    urls.append(base_url + build_share_url(country=country_url, league=league_url))
+
+        return Response(content=build_sitemap_xml(urls), media_type="application/xml")
 
     @app.get("/favicon.svg")
     def favicon() -> Response:

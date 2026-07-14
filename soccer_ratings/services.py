@@ -33,8 +33,10 @@ logger = logging.getLogger(__name__)
 _COUNTRIES_CACHE_TTL_SECONDS = 12 * 3600
 _LEAGUES_CACHE_TTL_SECONDS = 12 * 3600
 _RATINGS_CACHE_TTL_SECONDS = 6 * 3600
+_KNOWN_LEAGUES_CACHE_TTL_SECONDS = 6 * 3600
 
 _COUNTRIES_CACHE_KEY = "all"
+_KNOWN_LEAGUES_CACHE_KEY = "all"
 
 
 class DashboardServices:
@@ -42,6 +44,7 @@ class DashboardServices:
         self._countries_cache = TTLCache(_COUNTRIES_CACHE_TTL_SECONDS)
         self._leagues_cache = TTLCache(_LEAGUES_CACHE_TTL_SECONDS)
         self._ratings_cache = TTLCache(_RATINGS_CACHE_TTL_SECONDS)
+        self._known_leagues_cache = TTLCache(_KNOWN_LEAGUES_CACHE_TTL_SECONDS)
         self._jobs = JobManager()
         self._active_country_imports: dict[str, str] = {}
 
@@ -82,6 +85,39 @@ class DashboardServices:
             leagues = fetch_country_leagues(country_url)
         self._leagues_cache.set(country_url, leagues)
         return leagues
+
+    def get_known_leagues_by_country(self) -> dict[str, list[dict]]:
+        """DB-only league listing per country, for the sitemap.
+
+        Deliberately never falls back to a live scrape (unlike get_leagues)
+        so a crawler hitting /sitemap.xml can't trigger a scrape across
+        every country that hasn't been imported yet. Countries with no
+        imported leagues are simply omitted.
+        """
+        cached = self._known_leagues_cache.get(_KNOWN_LEAGUES_CACHE_KEY)
+        if cached is not None:
+            return cached
+
+        result: dict[str, list[dict]] = {}
+        for country in self.get_countries():
+            country_url = country.get("country_path")
+            if not country_url:
+                continue
+            try:
+                leagues = load_country_leagues_from_db(country_url)
+            except Exception as exc:
+                logger.warning(
+                    "DB lookup failed for sitemap leagues in %s (%s: %s); omitting from sitemap",
+                    country_url,
+                    type(exc).__name__,
+                    exc,
+                )
+                continue
+            if leagues:
+                result[country_url] = leagues
+
+        self._known_leagues_cache.set(_KNOWN_LEAGUES_CACHE_KEY, result)
+        return result
 
     def get_ratings(self, league_url: str) -> dict:
         cached = self._ratings_cache.get(league_url)

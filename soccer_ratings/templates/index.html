@@ -4,12 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   {% if selected_league_name %}
-  <title>{{ selected_league_name }} ratings &amp; odds &ndash; ratings1x2</title>
-  <meta name="description" content="Home and away ratings, implied 1X2/DNB/O-U/BTTS odds for {{ selected_league_name }}.">
+  {% set page_title = selected_league_name ~ " ratings & odds – ratings1x2" %}
+  {% set page_description = "Home and away ratings, implied 1X2/DNB/O-U/BTTS odds for " ~ selected_league_name ~ "." %}
   {% else %}
-  <title>ratings1x2 - soccer match ratings</title>
-  <meta name="description" content="Home and away soccer ratings by league, with implied 1X2, DNB, over/under, and BTTS match odds.">
+  {% set page_title = "ratings1x2 - soccer match ratings" %}
+  {% set page_description = "Home and away soccer ratings by league, with implied 1X2, DNB, over/under, and BTTS match odds." %}
   {% endif %}
+  <title>{{ page_title }}</title>
+  <meta name="description" content="{{ page_description }}">
+  <link rel="canonical" href="{{ request.url }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ratings1x2">
+  <meta property="og:title" content="{{ page_title }}">
+  <meta property="og:description" content="{{ page_description }}">
+  <meta property="og:url" content="{{ request.url }}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="{{ page_title }}">
+  <meta name="twitter:description" content="{{ page_description }}">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
