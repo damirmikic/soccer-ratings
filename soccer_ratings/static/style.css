@@ -335,7 +335,7 @@ button:disabled, select:disabled {
 
 .matchup-body {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   padding: 18px;
 }
@@ -357,145 +357,114 @@ button:disabled, select:disabled {
 
 .market-groups {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
-.market-group {
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: linear-gradient(180deg, #fcfdff, #f8fafc);
+.match-card {
+  --card-bg-1: #0f172a;
+  --card-bg-2: #1e293b;
+  --card-ink: #f8fafc;
+  --card-muted: #94a3b8;
+  --card-accent: #38bdf8;
+  --card-line: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(165deg, var(--card-bg-1), var(--card-bg-2));
+  border-radius: 18px;
+  padding: 16px 18px 18px;
+  color: var(--card-ink);
+  min-width: 0;
 }
 
-.market-group-header {
+.match-card-meta {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--card-muted);
 }
 
-.market-group-title {
-  margin: 0;
+.match-card-teams {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 0 14px;
+}
+
+.match-card-team {
   font-family: "Barlow", sans-serif;
-  font-size: 16px;
+  font-size: 19px;
   font-weight: 700;
-  color: var(--ink);
 }
 
-.market-group-note {
+.match-card-odds {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.odds-pill {
+  flex: 0 0 auto;
+  min-width: 62px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--card-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.odds-pill-label {
   font-size: 10px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--card-muted);
   font-weight: 700;
 }
 
-.market-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  overflow: hidden;
-  border: 1px solid rgba(16, 24, 40, 0.06);
-  border-radius: 14px;
-  background: white;
-}
-
-.market-table th,
-.market-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid rgba(16, 24, 40, 0.06);
-  text-align: left;
-  font-size: 12px;
-}
-
-.market-table thead th {
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
-  font-weight: 700;
-  background: #f8fafc;
-}
-
-.market-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.market-name {
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.market-prob {
+.odds-pill-value {
   font-family: "Barlow", sans-serif;
   font-size: 18px;
   font-weight: 700;
-  color: var(--ink);
+  color: var(--card-accent);
   white-space: nowrap;
 }
 
-.market-price {
-  font-family: "Barlow", sans-serif;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--accent-3);
-  white-space: nowrap;
+.odds-pill-prob {
+  font-size: 10px;
+  color: var(--card-muted);
 }
 
-.rating-gap {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-  font-size: 13px;
-  color: var(--muted);
+.odds-pill-divider {
+  flex: 0 0 auto;
+  width: 1px;
+  margin: 6px 2px;
+  background: var(--card-line);
 }
 
-.rating-gap strong {
-  color: var(--ink);
-  font-family: "Barlow", sans-serif;
-  font-size: 15px;
-}
-
-.team-goal-context {
+.match-card-goal-profiles {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-top: 12px;
-}
-
-.team-goal-card {
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: white;
-}
-
-.team-goal-card strong {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.team-goal-card span {
-  display: block;
-  font-family: "Barlow", sans-serif;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.team-goal-card small {
-  display: block;
-  margin-top: 4px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--card-line);
   font-size: 12px;
-  color: var(--muted);
+  color: var(--card-muted);
+}
+
+.match-card-goal-profile strong {
+  color: var(--card-ink);
+  font-family: "Barlow", sans-serif;
+}
+
+.match-card-goal-profile small {
+  display: block;
+  margin-top: 2px;
 }
 
 input[type="number"],
@@ -933,7 +902,7 @@ td:last-child {
 
 
 @media (max-width: 920px) {
-  .hero, .controls, .panes, .metric-strip, .status-bar, .matchup-body, .matchup-controls, .matchup-cards, .multi-toolbar, .multi-row, .multi-summary, .history-cache, .league-stats, .team-goal-context, .controls {
+  .hero, .controls, .panes, .metric-strip, .status-bar, .matchup-body, .matchup-controls, .matchup-cards, .multi-toolbar, .multi-row, .multi-summary, .history-cache, .league-stats, .match-card-goal-profiles, .controls {
     grid-template-columns: 1fr;
   }
 

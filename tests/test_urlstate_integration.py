@@ -47,7 +47,7 @@ class IndexSharedLinkRenderTests(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="league-loading"', response.text)
-        self.assertNotIn("market-table", response.text)
+        self.assertNotIn("match-card", response.text)
 
     def test_league_link_preselects_and_renders_league_content(self) -> None:
         response = self.client.get("/?country=/England/&league=/England/Premier-League/")
@@ -67,7 +67,8 @@ class IndexSharedLinkRenderTests(unittest.TestCase):
         self.assertIn('value="Arsenal" selected', response.text)
         self.assertIn('value="Chelsea" selected', response.text)
         self.assertIn('value="2.0"', response.text)
-        self.assertIn("market-table", response.text)
+        self.assertIn("match-card", response.text)
+        self.assertIn("odds-pill", response.text)
 
     def test_unresolvable_league_falls_back_gracefully(self) -> None:
         with mock.patch(
