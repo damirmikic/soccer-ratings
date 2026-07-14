@@ -185,6 +185,20 @@ class MatchDeduplicationTests(unittest.TestCase):
 
         self.assertEqual(len(deduped), 2)
 
+    def test_dedupe_matches_sorts_newest_first_across_months_and_years(self) -> None:
+        matches = [
+            {"date": "30.12.25", "competition": "BA1", "home_team": "A", "away_team": "B"},
+            {"date": "02.01.26", "competition": "BA1", "home_team": "C", "away_team": "D"},
+            {"date": "15.11.25", "competition": "BA1", "home_team": "E", "away_team": "F"},
+        ]
+
+        deduped = dedupe_matches(matches)
+
+        self.assertEqual(
+            [match["date"] for match in deduped],
+            ["02.01.26", "30.12.25", "15.11.25"],
+        )
+
     def test_filter_matches_for_league_keeps_only_matching_competition(self) -> None:
         matches = [
             {"competition": "UK1", "home_team": "A", "away_team": "B"},
