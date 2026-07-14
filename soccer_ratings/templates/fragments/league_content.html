@@ -1,5 +1,9 @@
 {% set home_count = home | length %}
 {% set away_count = away | length %}
+{% set country_url = country_url | default("") %}
+{% set selected_home = selected_home | default("") %}
+{% set selected_away = selected_away | default("") %}
+{% set margin_percent = margin_percent | default(0.0) %}
 
 <!-- History cache status + actions -->
 <div class="history-cache">
@@ -85,6 +89,7 @@
     <div class="matchup-body">
       <div id="comparison-form">
         <input type="hidden" name="league_url" value="{{ league_url }}">
+        <input type="hidden" name="country_url" value="{{ country_url }}">
         <div class="matchup-controls">
           <div class="control">
             <label for="home-team">Home Team</label>
@@ -96,7 +101,7 @@
               hx-indicator="#compare-spinner">
               <option value="">Choose home team</option>
               {% for t in home %}
-              <option value="{{ t.team }}">{{ t.team }}</option>
+              <option value="{{ t.team }}"{% if t.team == selected_home %} selected{% endif %}>{{ t.team }}</option>
               {% endfor %}
             </select>
           </div>
@@ -110,13 +115,13 @@
               hx-indicator="#compare-spinner">
               <option value="">Choose away team</option>
               {% for t in away %}
-              <option value="{{ t.team }}">{{ t.team }}</option>
+              <option value="{{ t.team }}"{% if t.team == selected_away %} selected{% endif %}>{{ t.team }}</option>
               {% endfor %}
             </select>
           </div>
           <div class="control">
             <label for="margin">Margin %</label>
-            <input id="margin" name="margin" type="number" min="0" step="0.1" value="0.0"
+            <input id="margin" name="margin" type="number" min="0" step="0.1" value="{{ margin_percent }}"
               hx-get="/fragments/compare"
               hx-trigger="change delay:400ms"
               hx-target="#comparison-result"
@@ -129,7 +134,7 @@
         </div>
       </div>
       <div class="market-groups" id="comparison-result">
-        <!-- HTMX populates this when teams are selected -->
+        {% if d %}{% include "fragments/comparison.html" %}{% endif %}
       </div>
     </div>
   </div>

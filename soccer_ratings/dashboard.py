@@ -101,18 +101,76 @@ def create_dashboard_app():
         except Exception:
             countries = []
         continents = sorted({c["continent"] for c in countries if c.get("continent")})
+
+        # Optional shareable-link state: /?continent=...&country=...&league=...&home=...&away=...&margin=...
+        selected_continent = request.query_params.get("continent", "")
+        selected_country = request.query_params.get("country", "")
+        selected_league = request.query_params.get("league", "")
+        selected_home = request.query_params.get("home", "")
+        selected_away = request.query_params.get("away", "")
+        try:
+            margin_percent = float(request.query_params.get("margin", "") or 0.0)
+        except ValueError:
+            margin_percent = 0.0
+
+        visible_countries = countries
+        if selected_continent:
+            visible_countries = [c for c in countries if c.get("continent") == selected_continent]
         grouped: dict[str, list] = {}
-        for c in countries:
+        for c in visible_countries:
             grouped.setdefault(c.get("continent") or "Other", []).append(c)
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            {
-                "continents": continents,
-                "countries_grouped": grouped,
-                "total_countries": len(countries),
-            },
-        )
+
+        leagues: list[dict] = []
+        selected_league_name = ""
+        if selected_country:
+            try:
+                leagues = svc.get_leagues(selected_country)
+            except Exception:
+                leagues = []
+            match = next((l for l in leagues if l.get("league_path") == selected_league), None)
+            if match:
+                selected_league_name = match.get("league") or ""
+
+        league_context: dict = {}
+        comparison = None
+        if selected_league:
+            try:
+                ratings = svc.get_ratings(selected_league) or {}
+                league_context = {
+                    "league_url": selected_league,
+                    "home": ratings.get("home", []),
+                    "away": ratings.get("away", []),
+                    "league_stats": svc.get_league_stats(selected_league),
+                    "history_status": svc.get_history_status(selected_league),
+                }
+                if selected_home and selected_away and selected_home != selected_away:
+                    comparison = svc.get_comparison(
+                        league_url=selected_league,
+                        home_team=selected_home,
+                        away_team=selected_away,
+                        margin_percent=margin_percent,
+                    )
+            except Exception:
+                league_context = {}
+                comparison = None
+
+        context = {
+            "continents": continents,
+            "grouped": grouped,
+            "total_countries": len(countries),
+            "selected_continent": selected_continent,
+            "selected_country": selected_country,
+            "selected_league": selected_league,
+            "selected_league_name": selected_league_name,
+            "selected_home": selected_home,
+            "selected_away": selected_away,
+            "margin_percent": margin_percent,
+            "leagues": leagues,
+            "country_url": selected_country,
+            "d": comparison,
+        }
+        context.update(league_context)
+        return templates.TemplateResponse(request, "index.html", context)
 
     @app.get("/health", response_class=PlainTextResponse)
     def health() -> str:

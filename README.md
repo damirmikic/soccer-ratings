@@ -154,6 +154,22 @@ python3 app.py import-league-ratings --country-url /England/
 python3 app.py import-country-history --country-url /England/
 ```
 
+## Shareable URLs
+
+The dashboard reflects its selection in the address bar, so a country,
+league, or a specific matchup can be bookmarked or shared as a link, e.g.
+`/?country=/England/&league=/England/Premier-League/&home=Arsenal&away=Chelsea&margin=2`.
+Opening a link like this renders the league (and comparison, if a
+matchup is included) directly in the initial HTML response — no extra
+round trip — which also gives each league a distinct `<title>` and meta
+description for search engines.
+
+Every dropdown/team change updates the URL via HTMX's `HX-Push-Url`
+response header (see `soccer_ratings/urlstate.py` and the fragment
+routes in `soccer_ratings/routes/fragments.py`), so back/forward
+navigation and copy-pasting the current URL both work without any
+client-side routing code.
+
 ## Run
 
 Fetch all countries:

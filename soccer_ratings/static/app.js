@@ -35,6 +35,14 @@ document.addEventListener("htmx:afterSettle", (e) => {
   }
 });
 
+// A shared link can load the page with league content already rendered
+// server-side (no HTMX swap happens), so initialize from the DOM directly.
+document.addEventListener("DOMContentLoaded", () => {
+  if (document.getElementById("league-data")) {
+    initMultiFromDOM();
+  }
+});
+
 function initMultiFromDOM() {
   const el = document.getElementById("league-data");
   if (!el) return;

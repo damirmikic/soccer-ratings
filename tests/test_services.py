@@ -12,6 +12,28 @@ class CacheWiringTests(unittest.TestCase):
         self.assertEqual(svc._ratings_cache._ttl, 6 * 3600)
 
 
+class GetContinentForCountryTests(unittest.TestCase):
+    @mock.patch("soccer_ratings.services.fetch_all_rankings")
+    def test_finds_continent_for_known_country(self, mock_fetch) -> None:
+        mock_fetch.return_value = [
+            {"country": "England", "country_path": "/England/", "continent": "Europe"},
+        ]
+        svc = DashboardServices()
+        self.assertEqual(svc.get_continent_for_country("/England/"), "Europe")
+
+    @mock.patch("soccer_ratings.services.fetch_all_rankings")
+    def test_returns_empty_string_for_unknown_country(self, mock_fetch) -> None:
+        mock_fetch.return_value = [
+            {"country": "England", "country_path": "/England/", "continent": "Europe"},
+        ]
+        svc = DashboardServices()
+        self.assertEqual(svc.get_continent_for_country("/Nowhere/"), "")
+
+    def test_returns_empty_string_for_empty_input_without_fetching(self) -> None:
+        svc = DashboardServices()
+        self.assertEqual(svc.get_continent_for_country(""), "")
+
+
 class GetLeaguesFallbackTests(unittest.TestCase):
     @mock.patch("soccer_ratings.services.fetch_country_leagues")
     @mock.patch("soccer_ratings.services.load_country_leagues_from_db")

@@ -53,6 +53,16 @@ class DashboardServices:
         self._countries_cache.set(_COUNTRIES_CACHE_KEY, countries)
         return countries
 
+    def get_continent_for_country(self, country_url: str) -> str:
+        """Looks up the continent for a country_path, for building shareable
+        URLs server-side without the client having to pass it along."""
+        if not country_url:
+            return ""
+        for country in self.get_countries():
+            if country.get("country_path") == country_url:
+                return country.get("continent") or ""
+        return ""
+
     def get_leagues(self, country_url: str) -> list[dict]:
         cached = self._leagues_cache.get(country_url)
         if cached is not None:
