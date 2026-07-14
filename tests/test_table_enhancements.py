@@ -96,6 +96,12 @@ class RatingsTableMarkupTests(unittest.TestCase):
         )
         self.assertIn('id="team-filter"', response.text)
 
+    def test_multi_match_export_csv_button_present(self) -> None:
+        response = self.client.get(
+            "/fragments/league-content?league_url=/England/Premier-League/&country_url=/England/"
+        )
+        self.assertIn('id="multi-export-csv"', response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

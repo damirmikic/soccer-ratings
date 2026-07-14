@@ -533,9 +533,15 @@ input[type="search"]:focus {
 
 .multi-toolbar {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr auto;
   gap: 12px;
   align-items: end;
+}
+
+.multi-toolbar button {
+  width: auto;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
 .multi-list {
