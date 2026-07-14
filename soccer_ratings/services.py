@@ -20,6 +20,7 @@ from .db import (
     load_league_home_away_ratings as load_league_home_away_ratings_from_db,
     load_league_summary_stats,
 )
+from .jobs import JobManager
 
 
 class DashboardServices:
@@ -27,6 +28,8 @@ class DashboardServices:
         self._countries_cache: list[dict] | None = None
         self._leagues_cache: dict[str, list[dict]] = {}
         self._ratings_cache: dict[str, dict] = {}
+        self._jobs = JobManager()
+        self._active_country_imports: dict[str, str] = {}
 
     def get_countries(self) -> list[dict]:
         if self._countries_cache is None:
@@ -124,5 +127,28 @@ class DashboardServices:
     def import_history_to_db(self, league_url: str) -> dict:
         return import_league_history_to_db(league_url)
 
-    def import_country_to_db(self, country_url: str) -> dict:
-        return import_country_history_to_db(country_url)
+    def start_country_import_job(self, country_url: str) -> str:
+        """Kick off (or reuse) a background country import job.
+
+        Returns an existing job id if one is already running for this
+        country, so a double-click doesn't queue a second scrape of the
+        same country.
+        """
+        existing_job_id = self._active_country_imports.get(country_url)
+        if existing_job_id and self._jobs.is_running(existing_job_id):
+            return existing_job_id
+
+        job_id = self._jobs.create(kind="country_import", label=country_url)
+        self._active_country_imports[country_url] = job_id
+        return job_id
+
+    def run_country_import_job(self, job_id: str, country_url: str) -> None:
+        """Blocking worker body — schedule via BackgroundTasks, never call directly from a request."""
+
+        def task(on_progress):
+            return import_country_history_to_db(country_url, on_progress=on_progress)
+
+        self._jobs.run(job_id, task)
+
+    def get_job(self, job_id: str) -> dict | None:
+        return self._jobs.get(job_id)

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import html
 import pathlib
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -138,15 +137,22 @@ async def history_import(request: Request) -> HTMLResponse:
 
 
 @router.post("/country-import", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
-async def country_import(request: Request) -> HTMLResponse:
+async def country_import(request: Request, background_tasks: BackgroundTasks) -> HTMLResponse:
     country_url = await _form_or_query(request, "country_url")
-    try:
-        result = _svc(request).import_country_to_db(country_url)
-        leagues = result.get("leagues_processed", 0)
-        matches = result.get("matches_imported", 0)
-        failures = result.get("failure_count", 0)
-        fail_note = f" ({failures} league(s) failed)" if failures else ""
-        msg = f"Country import done: {leagues} leagues, {matches} matches{fail_note}."
-    except Exception as exc:
-        msg = f"Import failed: {exc}"
-    return HTMLResponse(f'<span class="history-cache-meta">{html.escape(msg)}</span>')
+    svc = _svc(request)
+    job_id = svc.start_country_import_job(country_url)
+    background_tasks.add_task(svc.run_country_import_job, job_id, country_url)
+    return _templates.TemplateResponse(
+        request,
+        "fragments/import_job_status.html",
+        {"job": svc.get_job(job_id)},
+    )
+
+
+@router.get("/import-job-status", response_class=HTMLResponse)
+def import_job_status(request: Request, job_id: str = Query(...)) -> HTMLResponse:
+    return _templates.TemplateResponse(
+        request,
+        "fragments/import_job_status.html",
+        {"job": _svc(request).get_job(job_id)},
+    )

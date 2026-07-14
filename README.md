@@ -125,6 +125,18 @@ The app also applies per-IP rate limits (120 requests/min in general,
 including a Content-Security-Policy, and serves a `robots.txt` that
 keeps crawlers away from `/fragments/` and `/api/`.
 
+Country-wide imports run as a background job instead of blocking the
+request, since scraping every league in a large country can take minutes
+— long enough to hit Render's request timeout. `POST
+/fragments/country-import` and `POST /api/country-history/import` both
+return immediately with a job snapshot; poll `GET
+/fragments/import-job-status?job_id=...` (HTML) or `GET
+/api/country-history/import/status?job_id=...` (JSON) for progress until
+`status` is `done` or `error`. The dashboard UI does this polling for you
+via HTMX. Job state is in-memory per process, so it resets on redeploy
+and won't be visible across multiple instances if the app is ever scaled
+beyond a single Render instance.
+
 After the first deploy, initialize and import data from a Render shell or another trusted environment:
 
 ```bash
