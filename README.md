@@ -199,6 +199,23 @@ new league content without any re-initialization step. When a matchup
 is selected in the Single Match tab, the two chosen teams are
 highlighted in their respective tables.
 
+## SEO
+
+Every page sets a meta description, a canonical link, OpenGraph tags
+(`og:type`/`site_name`/`title`/`description`/`url`), and a Twitter
+summary card, all derived from the same title/description used for
+`<title>` — see the `{% set page_title %}`/`page_description` block in
+`templates/index.html`. Selecting a league changes all of these to
+that league's name, so shared links preview correctly.
+
+`GET /sitemap.xml` lists the homepage, one entry per country, and one
+entry per league that has been imported into Postgres —
+`DashboardServices.get_known_leagues_by_country()` deliberately never
+falls back to a live scrape (unlike the normal league lookup), so a
+crawler hitting the sitemap can't trigger scraping across every
+not-yet-imported country. `robots.txt` points crawlers at it via a
+`Sitemap:` line.
+
 ## Run
 
 Fetch all countries:
