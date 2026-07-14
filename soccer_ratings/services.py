@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+
+from .cache import TTLCache
 from .client import (
     build_and_cache_league_history,
     compare_teams_from_ratings,
@@ -22,44 +25,84 @@ from .db import (
 )
 from .jobs import JobManager
 
+logger = logging.getLogger(__name__)
+
+# Countries and leagues change rarely; ratings are what users care about
+# being fresh, so they get a shorter TTL. Both are well within the range
+# recommended for a low-write scraped dataset like this one.
+_COUNTRIES_CACHE_TTL_SECONDS = 12 * 3600
+_LEAGUES_CACHE_TTL_SECONDS = 12 * 3600
+_RATINGS_CACHE_TTL_SECONDS = 6 * 3600
+
+_COUNTRIES_CACHE_KEY = "all"
+
 
 class DashboardServices:
     def __init__(self) -> None:
-        self._countries_cache: list[dict] | None = None
-        self._leagues_cache: dict[str, list[dict]] = {}
-        self._ratings_cache: dict[str, dict] = {}
+        self._countries_cache = TTLCache(_COUNTRIES_CACHE_TTL_SECONDS)
+        self._leagues_cache = TTLCache(_LEAGUES_CACHE_TTL_SECONDS)
+        self._ratings_cache = TTLCache(_RATINGS_CACHE_TTL_SECONDS)
         self._jobs = JobManager()
         self._active_country_imports: dict[str, str] = {}
 
     def get_countries(self) -> list[dict]:
-        if self._countries_cache is None:
-            self._countries_cache = fetch_all_rankings()
-        return self._countries_cache
+        cached = self._countries_cache.get(_COUNTRIES_CACHE_KEY)
+        if cached is not None:
+            return cached
+        countries = fetch_all_rankings()
+        self._countries_cache.set(_COUNTRIES_CACHE_KEY, countries)
+        return countries
 
     def get_leagues(self, country_url: str) -> list[dict]:
-        if country_url not in self._leagues_cache:
-            try:
-                self._leagues_cache[country_url] = load_country_leagues_from_db(country_url)
-            except Exception:
-                self._leagues_cache[country_url] = []
-            if not self._leagues_cache[country_url]:
-                self._leagues_cache[country_url] = fetch_country_leagues(country_url)
-        return self._leagues_cache[country_url]
+        cached = self._leagues_cache.get(country_url)
+        if cached is not None:
+            return cached
+
+        leagues: list[dict] = []
+        try:
+            leagues = load_country_leagues_from_db(country_url)
+        except Exception as exc:
+            logger.warning(
+                "DB lookup failed for leagues in %s (%s: %s); falling back to live scrape",
+                country_url,
+                type(exc).__name__,
+                exc,
+            )
+        if not leagues:
+            leagues = fetch_country_leagues(country_url)
+        self._leagues_cache.set(country_url, leagues)
+        return leagues
 
     def get_ratings(self, league_url: str) -> dict:
-        if league_url not in self._ratings_cache:
-            try:
-                self._ratings_cache[league_url] = load_league_home_away_ratings_from_db(league_url)
-            except Exception:
-                self._ratings_cache[league_url] = None
-            if not self._ratings_cache[league_url]:
-                self._ratings_cache[league_url] = fetch_league_home_away_ratings(league_url)
-        return self._ratings_cache[league_url]
+        cached = self._ratings_cache.get(league_url)
+        if cached is not None:
+            return cached
+
+        ratings = None
+        try:
+            ratings = load_league_home_away_ratings_from_db(league_url)
+        except Exception as exc:
+            logger.warning(
+                "DB lookup failed for ratings in %s (%s: %s); falling back to live scrape",
+                league_url,
+                type(exc).__name__,
+                exc,
+            )
+        if not ratings:
+            ratings = fetch_league_home_away_ratings(league_url)
+        self._ratings_cache.set(league_url, ratings)
+        return ratings
 
     def get_league_stats(self, league_url: str) -> dict | None:
         try:
             league_stats = load_league_summary_stats(league_url)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "DB lookup failed for league stats in %s (%s: %s); falling back to cached history file",
+                league_url,
+                type(exc).__name__,
+                exc,
+            )
             league_stats = None
         if league_stats is None:
             cached = load_cached_league_history(league_url)
@@ -84,7 +127,13 @@ class DashboardServices:
             historical_matches = load_league_history_matches(league_url)
             if historical_matches:
                 history_source = "postgres"
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "DB lookup failed for match history in %s (%s: %s); falling back to cached history file",
+                league_url,
+                type(exc).__name__,
+                exc,
+            )
             historical_matches = []
 
         if not historical_matches:

@@ -137,6 +137,14 @@ via HTMX. Job state is in-memory per process, so it resets on redeploy
 and won't be visible across multiple instances if the app is ever scaled
 beyond a single Render instance.
 
+`DashboardServices` caches countries and leagues for 12 hours and
+ratings for 6 hours (in-memory, per process — also reset on redeploy).
+Every cache miss tries Postgres first and falls back to a live scrape of
+soccer-rating.com if the query fails or returns nothing; a failed lookup
+(e.g. a broken `DATABASE_URL`) logs a `WARNING` from the
+`soccer_ratings.services` logger with the exception so it shows up in
+Render's logs instead of failing silently.
+
 After the first deploy, initialize and import data from a Render shell or another trusted environment:
 
 ```bash
