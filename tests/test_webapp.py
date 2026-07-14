@@ -1,14 +1,19 @@
 import os
+import re
 import unittest
 from unittest import mock
 
 from fastapi.testclient import TestClient
 
 from soccer_ratings.dashboard import create_dashboard_app
+from soccer_ratings.jobs import JobManager
 
 
 class StubServices:
     """Stands in for DashboardServices so tests never hit the network or DB."""
+
+    def __init__(self) -> None:
+        self._jobs = JobManager()
 
     def get_countries(self):
         return [{"country": "England", "country_path": "/England/", "continent": "Europe"}]
@@ -25,8 +30,22 @@ class StubServices:
     def import_history_to_db(self, league_url):
         return {"league_url": league_url, "matches_imported": 5}
 
-    def import_country_to_db(self, country_url):
-        return {"leagues_processed": 2, "matches_imported": 10, "failure_count": 0}
+    def start_country_import_job(self, country_url):
+        return self._jobs.create(kind="country_import", label=country_url)
+
+    def run_country_import_job(self, job_id, country_url):
+        self._jobs.run(
+            job_id,
+            lambda on_progress: {
+                "country_url": country_url,
+                "leagues_processed": 2,
+                "matches_imported": 10,
+                "failure_count": 0,
+            },
+        )
+
+    def get_job(self, job_id):
+        return self._jobs.get(job_id)
 
 
 def make_client() -> TestClient:
@@ -128,6 +147,75 @@ class RateLimitTests(unittest.TestCase):
         for _ in range(10):
             response = client.get("/health")
             self.assertEqual(response.status_code, 200)
+
+
+class CountryImportBackgroundJobTests(unittest.TestCase):
+    """Country import must never block the request — see services.py
+    start_country_import_job / run_country_import_job and jobs.py."""
+
+    @mock.patch.dict(os.environ, {"ADMIN_TOKEN": "secret"})
+    def test_country_import_fragment_returns_immediately_and_completes_via_polling(self) -> None:
+        client = make_client()
+        response = client.post(
+            "/fragments/country-import",
+            data={"country_url": "/England/", "admin_token": "secret"},
+        )
+        self.assertEqual(response.status_code, 200)
+        job_id_match = re.search(r"job_id=([0-9a-f]{32})", response.text)
+        self.assertIsNotNone(job_id_match, response.text)
+
+        status_response = client.get(f"/fragments/import-job-status?job_id={job_id_match.group(1)}")
+        self.assertEqual(status_response.status_code, 200)
+        self.assertIn("Country import done: 2 leagues, 10 matches", status_response.text)
+
+    def test_import_job_status_handles_unknown_job_id(self) -> None:
+        client = make_client()
+        response = client.get("/fragments/import-job-status?job_id=does-not-exist")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Import job not found", response.text)
+
+    @mock.patch.dict(os.environ, {"ADMIN_TOKEN": "secret"})
+    def test_api_country_import_returns_202_with_job_payload(self) -> None:
+        client = make_client()
+        response = client.post(
+            "/api/country-history/import?country_url=/England/",
+            headers={"X-Admin-Token": "secret"},
+        )
+        self.assertEqual(response.status_code, 202)
+        body = response.json()
+        self.assertEqual(body["kind"], "country_import")
+
+        status_response = client.get(f"/api/country-history/import/status?job_id={body['id']}")
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(status_response.json()["status"], "done")
+
+    def test_api_country_import_status_404s_for_unknown_job(self) -> None:
+        client = make_client()
+        response = client.get("/api/country-history/import/status?job_id=nope")
+        self.assertEqual(response.status_code, 404)
+
+
+class DashboardServicesJobDedupTests(unittest.TestCase):
+    """Verifies DashboardServices.start_country_import_job reuses an
+    in-flight job instead of starting a second scrape of the same country."""
+
+    def test_reuses_job_id_while_running(self) -> None:
+        from soccer_ratings.services import DashboardServices
+
+        svc = DashboardServices()
+        first_job_id = svc.start_country_import_job("/England/")
+        second_job_id = svc.start_country_import_job("/England/")
+        self.assertEqual(first_job_id, second_job_id)
+
+    def test_starts_new_job_once_previous_one_finished(self) -> None:
+        from soccer_ratings.services import DashboardServices
+
+        svc = DashboardServices()
+        first_job_id = svc.start_country_import_job("/England/")
+        svc._jobs.run(first_job_id, lambda on_progress: {"leagues_processed": 0})
+
+        second_job_id = svc.start_country_import_job("/England/")
+        self.assertNotEqual(first_job_id, second_job_id)
 
 
 if __name__ == "__main__":

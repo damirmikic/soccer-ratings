@@ -1,7 +1,24 @@
 {% set home_count = home | length %}
 {% set away_count = away | length %}
+{% set country_url = country_url | default("") %}
+{% set selected_home = selected_home | default("") %}
+{% set selected_away = selected_away | default("") %}
+{% set margin_percent = margin_percent | default(0.0) %}
+{% set ratings_fetched_at = ratings_fetched_at | default(None) %}
+{% set ratings_source = ratings_source | default("live") %}
 
-<!-- History cache status + actions -->
+<!-- Data freshness -->
+<div class="freshness-banner">
+  {% if ratings_fetched_at %}
+  <span class="freshness-dot"></span>
+  <span>Ratings updated {{ ratings_fetched_at | relative_time }}</span>
+  {% else %}
+  <span class="freshness-dot is-live"></span>
+  <span>Live data &mdash; not yet cached in the database</span>
+  {% endif %}
+</div>
+
+<!-- History cache status (read-only; import/cache actions live on /admin) -->
 <div class="history-cache">
   <div id="history-status-inner">
     {% if history_status and history_status.cached %}
@@ -14,27 +31,6 @@
     <div class="history-cache-meta"></div>
     {% endif %}
   </div>
-  <div class="history-actions">
-    <button
-      hx-post="/fragments/history-build"
-      hx-vals='{"league_url": "{{ league_url }}", "refresh": "1"}'
-      hx-include="#admin-token"
-      hx-target="#history-status-inner"
-      hx-swap="innerHTML"
-      hx-indicator="#history-spinner">
-      Build Local Cache
-    </button>
-    <button
-      hx-post="/fragments/history-import"
-      hx-vals='{"league_url": "{{ league_url }}"}'
-      hx-include="#admin-token"
-      hx-target="#history-status-inner"
-      hx-swap="innerHTML"
-      hx-indicator="#history-spinner">
-      Import To DB
-    </button>
-  </div>
-  <span id="history-spinner" class="htmx-indicator" style="font-size:12px;color:var(--muted);align-self:center;">Working&hellip;</span>
 </div>
 
 <!-- League stats strip -->
@@ -85,6 +81,7 @@
     <div class="matchup-body">
       <div id="comparison-form">
         <input type="hidden" name="league_url" value="{{ league_url }}">
+        <input type="hidden" name="country_url" value="{{ country_url }}">
         <div class="matchup-controls">
           <div class="control">
             <label for="home-team">Home Team</label>
@@ -96,7 +93,7 @@
               hx-indicator="#compare-spinner">
               <option value="">Choose home team</option>
               {% for t in home %}
-              <option value="{{ t.team }}">{{ t.team }}</option>
+              <option value="{{ t.team }}"{% if t.team == selected_home %} selected{% endif %}>{{ t.team }}</option>
               {% endfor %}
             </select>
           </div>
@@ -110,13 +107,13 @@
               hx-indicator="#compare-spinner">
               <option value="">Choose away team</option>
               {% for t in away %}
-              <option value="{{ t.team }}">{{ t.team }}</option>
+              <option value="{{ t.team }}"{% if t.team == selected_away %} selected{% endif %}>{{ t.team }}</option>
               {% endfor %}
             </select>
           </div>
           <div class="control">
             <label for="margin">Margin %</label>
-            <input id="margin" name="margin" type="number" min="0" step="0.1" value="0.0"
+            <input id="margin" name="margin" type="number" min="0" step="0.1" value="{{ margin_percent }}"
               hx-get="/fragments/compare"
               hx-trigger="change delay:400ms"
               hx-target="#comparison-result"
@@ -129,7 +126,7 @@
         </div>
       </div>
       <div class="market-groups" id="comparison-result">
-        <!-- HTMX populates this when teams are selected -->
+        {% if d %}{% include "fragments/comparison.html" %}{% endif %}
       </div>
     </div>
   </div>
@@ -165,6 +162,11 @@
 </script>
 
 <!-- Rating tables -->
+<div class="control team-filter-control">
+  <label for="team-filter">Filter teams</label>
+  <input type="search" id="team-filter" placeholder="Type a team name&hellip;" autocomplete="off">
+</div>
+
 <section class="panes">
   <article class="pane">
     <div class="pane-header">
@@ -174,14 +176,20 @@
     <div>
       {% if home %}
       <div class="table-wrap">
-        <table>
-          <thead><tr><th>Rank</th><th>Team</th><th>Rating</th></tr></thead>
+        <table data-role="home-ratings">
+          <thead>
+            <tr>
+              <th data-sort-key="rank">Rank</th>
+              <th data-sort-key="team">Team</th>
+              <th data-sort-key="rating">Rating</th>
+            </tr>
+          </thead>
           <tbody>
             {% for t in home %}
-            <tr>
-              <td>{{ t.rank }}</td>
-              <td>{{ t.team }}</td>
-              <td>{{ "%.2f"|format(t.rating) }}</td>
+            <tr data-team="{{ t.team }}">
+              <td data-cell="rank">{{ t.rank }}</td>
+              <td data-cell="team">{{ t.team }}</td>
+              <td data-cell="rating">{{ "%.2f"|format(t.rating) }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -200,14 +208,20 @@
     <div>
       {% if away %}
       <div class="table-wrap">
-        <table>
-          <thead><tr><th>Rank</th><th>Team</th><th>Rating</th></tr></thead>
+        <table data-role="away-ratings">
+          <thead>
+            <tr>
+              <th data-sort-key="rank">Rank</th>
+              <th data-sort-key="team">Team</th>
+              <th data-sort-key="rating">Rating</th>
+            </tr>
+          </thead>
           <tbody>
             {% for t in away %}
-            <tr>
-              <td>{{ t.rank }}</td>
-              <td>{{ t.team }}</td>
-              <td>{{ "%.2f"|format(t.rating) }}</td>
+            <tr data-team="{{ t.team }}">
+              <td data-cell="rank">{{ t.rank }}</td>
+              <td data-cell="team">{{ t.team }}</td>
+              <td data-cell="rating">{{ "%.2f"|format(t.rating) }}</td>
             </tr>
             {% endfor %}
           </tbody>

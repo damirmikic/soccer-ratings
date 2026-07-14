@@ -1,4 +1,5 @@
+{% set selected_league = selected_league | default("") %}
 <option value="">Choose a league</option>
 {% for league in leagues %}
-<option value="{{ league.league_path }}">{{ league.league }}</option>
+<option value="{{ league.league_path }}"{% if league.league_path == selected_league %} selected{% endif %}>{{ league.league }}</option>
 {% endfor %}

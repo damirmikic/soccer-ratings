@@ -3,7 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% if selected_league_name %}
+  <title>{{ selected_league_name }} ratings &amp; odds &ndash; ratings1x2</title>
+  <meta name="description" content="Home and away ratings, implied 1X2/DNB/O-U/BTTS odds for {{ selected_league_name }}.">
+  {% else %}
   <title>ratings1x2 - soccer match ratings</title>
+  <meta name="description" content="Home and away soccer ratings by league, with implied 1X2, DNB, over/under, and BTTS match odds.">
+  {% endif %}
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,7 +81,7 @@
           </div>
           <div class="metric">
             <span class="metric-label">Status</span>
-            <span class="metric-value" id="status-metric">Ready</span>
+            <span class="metric-value" id="status-metric">{% if league_url %}Live{% else %}Ready{% endif %}</span>
           </div>
         </div>
       </div>
@@ -99,7 +105,7 @@
           hx-on:htmx:after-swap="resetLeagueContent()">
           <option value="">All Continents</option>
           {% for continent in continents %}
-          <option value="{{ continent }}">{{ continent }}</option>
+          <option value="{{ continent }}"{% if continent == selected_continent %} selected{% endif %}>{{ continent }}</option>
           {% endfor %}
         </select>
       </div>
@@ -113,29 +119,8 @@
           hx-target="#league"
           hx-swap="innerHTML"
           hx-on:htmx:after-swap="resetLeagueContent()">
-          <option value="">Choose a country</option>
-          {% for continent_name, continent_countries in countries_grouped.items() %}
-          <optgroup label="{{ continent_name }}">
-            {% for c in continent_countries %}
-            <option value="{{ c.country_path }}">{{ c.country }}</option>
-            {% endfor %}
-          </optgroup>
-          {% endfor %}
+          {% include "fragments/country_options.html" %}
         </select>
-        <button id="import-country-btn"
-          style="margin-top:4px;"
-          hx-post="/fragments/country-import"
-          hx-include="#country, #admin-token"
-          hx-target="#country-import-status"
-          hx-swap="innerHTML"
-          hx-indicator="#country-import-btn"
-          onclick="this.textContent='Importing…'">
-          Import Country to DB
-        </button>
-        <input id="admin-token" name="admin_token" type="password"
-          placeholder="Admin token" autocomplete="off"
-          style="margin-top:4px;font-size:11px;">
-        <span id="country-import-status" style="font-size:11px;color:var(--muted);"></span>
       </div>
 
       <!-- League select: populated by HTMX when country changes, triggers full league content load -->
@@ -144,16 +129,24 @@
         <select id="league" name="league_url"
           hx-get="/fragments/league-content"
           hx-trigger="change"
+          hx-include="#country"
           hx-target="#league-content"
           hx-swap="innerHTML"
           hx-indicator="#league-content">
+          {% if leagues %}
+          {% include "fragments/league_options.html" %}
+          {% else %}
           <option value="">Select a country first</option>
+          {% endif %}
         </select>
       </div>
     </section>
 
-    <!-- League content: empty on load, replaced by HTMX when a league is selected -->
+    <!-- League content: server-rendered when a shareable link selects a league, otherwise replaced by HTMX -->
     <div id="league-content">
+      {% if league_url %}
+      {% include "fragments/league_content.html" %}
+      {% else %}
       <div id="league-loading">Loading league data&hellip;</div>
       <div class="history-cache" style="opacity:0.3;">
         <div class="history-cache-meta">Select a league to view history status.</div>
@@ -168,6 +161,7 @@
         <div class="league-stat"><strong>Draw %</strong><span>-</span></div>
         <div class="league-stat"><strong>Away Win %</strong><span>-</span></div>
       </div>
+      {% endif %}
     </div>
   </main>
 
@@ -178,10 +172,6 @@
       if (el) el.innerHTML = "";
       document.getElementById("status-metric").textContent = "Ready";
     }
-
-    document.getElementById("import-country-btn").addEventListener("htmx:afterRequest", function () {
-      this.textContent = "Import Country to DB";
-    });
 
     document.getElementById("league").addEventListener("htmx:beforeRequest", function () {
       document.getElementById("status-metric").textContent = "Loading…";

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-import html
 import pathlib
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from ..security import require_admin
 from ..services import DashboardServices
+from ..timeutil import format_relative_time
+from ..urlstate import build_share_url
 
 _TEMPLATES_DIR = pathlib.Path(__file__).parent.parent / "templates"
 _templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+_templates.env.filters["relative_time"] = format_relative_time
 
 router = APIRouter(prefix="/fragments")
 
@@ -38,54 +40,79 @@ def country_options(request: Request, continent: str = Query("")) -> HTMLRespons
     grouped: dict[str, list] = {}
     for c in countries:
         grouped.setdefault(c.get("continent") or "Other", []).append(c)
-    return _templates.TemplateResponse(
+    response = _templates.TemplateResponse(
         request,
         "fragments/country_options.html",
         {"grouped": grouped},
     )
+    # Country/league selection resets when the continent filter changes, so
+    # the shareable URL only reflects the filter itself.
+    response.headers["HX-Push-Url"] = build_share_url(continent=continent)
+    return response
 
 
 @router.get("/league-options", response_class=HTMLResponse)
 def league_options(request: Request, country_url: str = Query(...)) -> HTMLResponse:
-    leagues = _svc(request).get_leagues(country_url)
-    return _templates.TemplateResponse(
+    svc = _svc(request)
+    leagues = svc.get_leagues(country_url)
+    response = _templates.TemplateResponse(
         request,
         "fragments/league_options.html",
         {"leagues": leagues},
     )
+    response.headers["HX-Push-Url"] = build_share_url(
+        continent=svc.get_continent_for_country(country_url),
+        country=country_url,
+    )
+    return response
 
 
 @router.get("/league-content", response_class=HTMLResponse)
-def league_content(request: Request, league_url: str = Query(...)) -> HTMLResponse:
+def league_content(
+    request: Request,
+    league_url: str = Query(...),
+    country_url: str = Query(""),
+) -> HTMLResponse:
     svc = _svc(request)
     ratings = svc.get_ratings(league_url) or {}
     home = ratings.get("home", [])
     away = ratings.get("away", [])
-    return _templates.TemplateResponse(
+    response = _templates.TemplateResponse(
         request,
         "fragments/league_content.html",
         {
             "league_url": league_url,
+            "country_url": country_url,
             "home": home,
             "away": away,
             "league_stats": svc.get_league_stats(league_url),
             "history_status": svc.get_history_status(league_url),
+            "ratings_fetched_at": ratings.get("fetched_at"),
+            "ratings_source": ratings.get("source", "live"),
         },
     )
+    response.headers["HX-Push-Url"] = build_share_url(
+        continent=svc.get_continent_for_country(country_url),
+        country=country_url,
+        league=league_url,
+    )
+    return response
 
 
 @router.get("/compare", response_class=HTMLResponse)
 def compare(
     request: Request,
     league_url: str = Query(...),
+    country_url: str = Query(""),
     home_team: str = Query(""),
     away_team: str = Query(""),
     margin: float = Query(0.0),
 ) -> HTMLResponse:
     if not home_team or not away_team or home_team == away_team:
         return HTMLResponse("")
+    svc = _svc(request)
     try:
-        data = _svc(request).get_comparison(
+        data = svc.get_comparison(
             league_url=league_url,
             home_team=home_team,
             away_team=away_team,
@@ -93,11 +120,20 @@ def compare(
         )
     except Exception:
         return HTMLResponse('<p class="market-meta">Could not calculate comparison — check team selection.</p>')
-    return _templates.TemplateResponse(
+    response = _templates.TemplateResponse(
         request,
         "fragments/comparison.html",
         {"d": data},
     )
+    response.headers["HX-Push-Url"] = build_share_url(
+        continent=svc.get_continent_for_country(country_url),
+        country=country_url,
+        league=league_url,
+        home=home_team,
+        away=away_team,
+        margin=margin,
+    )
+    return response
 
 
 @router.post("/history-build", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
@@ -138,15 +174,22 @@ async def history_import(request: Request) -> HTMLResponse:
 
 
 @router.post("/country-import", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
-async def country_import(request: Request) -> HTMLResponse:
+async def country_import(request: Request, background_tasks: BackgroundTasks) -> HTMLResponse:
     country_url = await _form_or_query(request, "country_url")
-    try:
-        result = _svc(request).import_country_to_db(country_url)
-        leagues = result.get("leagues_processed", 0)
-        matches = result.get("matches_imported", 0)
-        failures = result.get("failure_count", 0)
-        fail_note = f" ({failures} league(s) failed)" if failures else ""
-        msg = f"Country import done: {leagues} leagues, {matches} matches{fail_note}."
-    except Exception as exc:
-        msg = f"Import failed: {exc}"
-    return HTMLResponse(f'<span class="history-cache-meta">{html.escape(msg)}</span>')
+    svc = _svc(request)
+    job_id = svc.start_country_import_job(country_url)
+    background_tasks.add_task(svc.run_country_import_job, job_id, country_url)
+    return _templates.TemplateResponse(
+        request,
+        "fragments/import_job_status.html",
+        {"job": svc.get_job(job_id)},
+    )
+
+
+@router.get("/import-job-status", response_class=HTMLResponse)
+def import_job_status(request: Request, job_id: str = Query(...)) -> HTMLResponse:
+    return _templates.TemplateResponse(
+        request,
+        "fragments/import_job_status.html",
+        {"job": _svc(request).get_job(job_id)},
+    )

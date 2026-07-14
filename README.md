@@ -113,8 +113,7 @@ environment (or `.env` locally); if it is unset these endpoints are
 disabled, so a fresh deployment is closed by default.
 
 Supply the token as an `X-Admin-Token` header, an `admin_token` query
-parameter, or the "Admin token" field in the dashboard UI before
-clicking an import button. Generate one with:
+parameter, or by logging in at `/admin` (see below). Generate one with:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -123,7 +122,41 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 The app also applies per-IP rate limits (120 requests/min in general,
 5/min on the import/build endpoints), sends standard security headers
 including a Content-Security-Policy, and serves a `robots.txt` that
-keeps crawlers away from `/fragments/` and `/api/`.
+keeps crawlers away from `/fragments/`, `/api/`, and `/admin`.
+
+### `/admin`
+
+Data import and cache-building tools ("Import Country to DB", "Build
+Local Cache", "Import To DB") live on their own `/admin` page instead of
+the public dashboard. `/admin` shows a token login form; on success it
+sets an `httponly`, `secure`, `samesite=strict` session cookie (12h
+`max_age`) so the admin buttons don't need the token resubmitted per
+click — `require_admin` accepts this cookie as just another valid
+credential source alongside the header/query/form token, so scripted
+API callers are unaffected. "Log out" (`POST /admin/logout`) clears the
+cookie. There's no separate admin account system — like `ADMIN_TOKEN`
+itself, this is a single shared secret, appropriate for a one-operator
+deployment.
+
+Country-wide imports run as a background job instead of blocking the
+request, since scraping every league in a large country can take minutes
+— long enough to hit Render's request timeout. `POST
+/fragments/country-import` and `POST /api/country-history/import` both
+return immediately with a job snapshot; poll `GET
+/fragments/import-job-status?job_id=...` (HTML) or `GET
+/api/country-history/import/status?job_id=...` (JSON) for progress until
+`status` is `done` or `error`. The dashboard UI does this polling for you
+via HTMX. Job state is in-memory per process, so it resets on redeploy
+and won't be visible across multiple instances if the app is ever scaled
+beyond a single Render instance.
+
+`DashboardServices` caches countries and leagues for 12 hours and
+ratings for 6 hours (in-memory, per process — also reset on redeploy).
+Every cache miss tries Postgres first and falls back to a live scrape of
+soccer-rating.com if the query fails or returns nothing; a failed lookup
+(e.g. a broken `DATABASE_URL`) logs a `WARNING` from the
+`soccer_ratings.services` logger with the exception so it shows up in
+Render's logs instead of failing silently.
 
 After the first deploy, initialize and import data from a Render shell or another trusted environment:
 
@@ -133,6 +166,38 @@ python3 app.py import-country-rankings
 python3 app.py import-league-ratings --country-url /England/
 python3 app.py import-country-history --country-url /England/
 ```
+
+## Shareable URLs
+
+The dashboard reflects its selection in the address bar, so a country,
+league, or a specific matchup can be bookmarked or shared as a link, e.g.
+`/?country=/England/&league=/England/Premier-League/&home=Arsenal&away=Chelsea&margin=2`.
+Opening a link like this renders the league (and comparison, if a
+matchup is included) directly in the initial HTML response — no extra
+round trip — which also gives each league a distinct `<title>` and meta
+description for search engines.
+
+Every dropdown/team change updates the URL via HTMX's `HX-Push-Url`
+response header (see `soccer_ratings/urlstate.py` and the fragment
+routes in `soccer_ratings/routes/fragments.py`), so back/forward
+navigation and copy-pasting the current URL both work without any
+client-side routing code.
+
+## Ratings tables
+
+Each league view shows a freshness banner ("Ratings updated 3h ago", via
+`soccer_ratings/timeutil.py`'s `relative_time` Jinja filter) based on the
+`rating_snapshots.fetched_at` timestamp from Postgres, or "Live data —
+not yet cached" when ratings were scraped on the fly instead of loaded
+from the database.
+
+The Home/Away rating tables support client-side sorting (click a column
+header) and a text filter box above them that narrows both tables by
+team name at once — both are plain event-delegated JS in
+`soccer_ratings/static/app.js`, so they keep working after HTMX swaps in
+new league content without any re-initialization step. When a matchup
+is selected in the Single Match tab, the two chosen teams are
+highlighted in their respective tables.
 
 ## Run
 

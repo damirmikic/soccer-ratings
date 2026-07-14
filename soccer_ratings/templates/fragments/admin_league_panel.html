@@ -1,0 +1,32 @@
+<div class="history-cache">
+  <div id="history-status-inner">
+    {% if history_status and history_status.cached %}
+    <div class="history-cache-meta">
+      Cached: {{ history_status.deduped_match_count }} deduped matches from {{ history_status.team_count }} teams ({{ history_status.raw_match_count }} raw).
+    </div>
+    <div class="history-cache-meta">{{ history_status.cache_path or "" }}</div>
+    {% else %}
+    <div class="history-cache-meta">No cached league history dataset for this league yet.</div>
+    <div class="history-cache-meta"></div>
+    {% endif %}
+  </div>
+  <div class="history-actions">
+    <button
+      hx-post="/fragments/history-build"
+      hx-vals='{"league_url": "{{ league_url }}", "refresh": "1"}'
+      hx-target="#history-status-inner"
+      hx-swap="innerHTML"
+      hx-indicator="#history-spinner">
+      Build Local Cache
+    </button>
+    <button
+      hx-post="/fragments/history-import"
+      hx-vals='{"league_url": "{{ league_url }}"}'
+      hx-target="#history-status-inner"
+      hx-swap="innerHTML"
+      hx-indicator="#history-spinner">
+      Import To DB
+    </button>
+  </div>
+  <span id="history-spinner" class="htmx-indicator" style="font-size: 12px; color: var(--muted); align-self: center;">Working&hellip;</span>
+</div>

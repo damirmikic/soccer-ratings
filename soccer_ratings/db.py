@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -245,31 +246,40 @@ def import_league_history(league_url: str, database_url: str | None = None) -> d
     }
 
 
-def import_country_history(country_url: str, database_url: str | None = None) -> dict:
+def import_country_history(
+    country_url: str,
+    database_url: str | None = None,
+    *,
+    on_progress: Callable[[int, int, str], None] | None = None,
+) -> dict:
     leagues = fetch_country_leagues(country_url)
+    total = len(leagues)
     results: list[dict] = []
     total_matches_imported = 0
     total_deduped_match_count = 0
     failures: list[dict] = []
 
-    for league in leagues:
+    for index, league in enumerate(leagues, start=1):
         league_path = league.get("league_path")
-        if not league_path:
-            continue
+        league_name = league.get("league") or league_path or ""
 
-        try:
-            result = import_league_history(league_path, database_url)
-            results.append(result)
-            total_matches_imported += int(result.get("matches_imported", 0))
-            total_deduped_match_count += int(result.get("deduped_match_count", 0))
-        except Exception as exc:
-            failures.append(
-                {
-                    "league_url": league_path,
-                    "league": league.get("league"),
-                    "error": str(exc),
-                }
-            )
+        if league_path:
+            try:
+                result = import_league_history(league_path, database_url)
+                results.append(result)
+                total_matches_imported += int(result.get("matches_imported", 0))
+                total_deduped_match_count += int(result.get("deduped_match_count", 0))
+            except Exception as exc:
+                failures.append(
+                    {
+                        "league_url": league_path,
+                        "league": league.get("league"),
+                        "error": str(exc),
+                    }
+                )
+
+        if on_progress:
+            on_progress(index, total, league_name)
 
     return {
         "country_url": country_url,
@@ -491,10 +501,11 @@ def load_league_home_away_ratings(league_url: str, database_url: str | None = No
 
         league_id = league_row[0]
         payload = {"league_url": league_row[1]}
+        fetched_at = None
         for mode in ("home", "away", "general"):
             cur.execute(
                 """
-                SELECT t.name, t.team_path, rs.ranking, rs.rating
+                SELECT t.name, t.team_path, rs.ranking, rs.rating, rs.fetched_at
                 FROM rating_snapshots rs
                 JOIN teams t ON t.id = rs.team_id
                 WHERE rs.scope = 'team'
@@ -522,6 +533,11 @@ def load_league_home_away_ratings(league_url: str, database_url: str | None = No
                     }
                 )
             payload[mode] = deduped_rows
+            # Rows are ordered fetched_at DESC, so the first row (if any) is
+            # this mode's freshest snapshot timestamp.
+            if rows and rows[0][4] is not None:
+                fetched_at = rows[0][4] if fetched_at is None else max(fetched_at, rows[0][4])
+        payload["fetched_at"] = fetched_at
 
     if not payload.get("home") or not payload.get("away"):
         return None

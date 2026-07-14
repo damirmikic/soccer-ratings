@@ -498,7 +498,8 @@ button:disabled, select:disabled {
   color: var(--muted);
 }
 
-input[type="number"] {
+input[type="number"],
+input[type="search"] {
   width: 100%;
   min-height: 50px;
   border: 1px solid var(--line);
@@ -512,7 +513,8 @@ input[type="number"] {
   transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 
-input[type="number"]:focus {
+input[type="number"]:focus,
+input[type="search"]:focus {
   border-color: rgba(225, 29, 46, 0.35);
   box-shadow: 0 0 0 4px rgba(225, 29, 46, 0.1);
 }
@@ -710,6 +712,36 @@ tbody tr:hover {
   background: #eef6ff;
 }
 
+tbody tr.is-selected-team {
+  background: rgba(225, 29, 46, 0.08);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+th[data-sort-key] {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+th[data-sort-key]::after {
+  content: "\2195";
+  margin-left: 6px;
+  opacity: 0.35;
+  font-size: 10px;
+}
+
+th[data-sort-key].is-sorted-asc::after {
+  content: "\2191";
+  opacity: 1;
+  color: var(--accent-2);
+}
+
+th[data-sort-key].is-sorted-desc::after {
+  content: "\2193";
+  opacity: 1;
+  color: var(--accent-2);
+}
+
 td:first-child {
   width: 74px;
   font-family: "Barlow", sans-serif;
@@ -757,6 +789,32 @@ td:last-child {
   gap: 18px;
   align-items: center;
   margin-bottom: 22px;
+}
+
+.freshness-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.freshness-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-2);
+  flex-shrink: 0;
+}
+
+.freshness-dot.is-live {
+  background: var(--accent);
+}
+
+.team-filter-control {
+  max-width: 320px;
+  margin-bottom: 18px;
 }
 
 .history-cache {
