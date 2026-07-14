@@ -167,6 +167,39 @@ python3 app.py import-league-ratings --country-url /England/
 python3 app.py import-country-history --country-url /England/
 ```
 
+## Scheduled data refresh
+
+`.github/workflows/refresh-data.yml` runs nightly (03:00 UTC, plus a
+manual "Run workflow" button) and:
+
+1. `python3 app.py import-country-rankings` — refreshes the full country
+   list. Cheap, always safe to run for everyone.
+2. `python3 app.py refresh-known-history` — re-imports history only for
+   countries that **already have at least one league in Postgres**
+   (`db.list_countries_with_imported_leagues`, a DB-only query — it
+   never crawls the source site just to figure out what to refresh).
+   This means the nightly job automatically covers whatever you've
+   imported via `/admin` or the CLI, with nothing to edit in the
+   workflow file as you add more countries. It deliberately does **not**
+   use `import-all-history`, which crawls every country in the world
+   and would be a long, heavy, and rude crawl of soccer-rating.com to
+   run nightly.
+
+This runs on GitHub's infrastructure and connects to Supabase directly
+(bypassing Render entirely), so it keeps working even during a Render
+outage, and it's free on GitHub's standard runners.
+
+**One-time setup:** add `DIRECT_DATABASE_URL` as a repository secret
+(Settings → Secrets and variables → Actions → New repository secret),
+using the same value as the one configured on Render. Without this
+secret the workflow will fail at the first import step with a
+"DIRECT_DATABASE_URL or DATABASE_URL is not set" error.
+
+With this in place, the web app almost always serves warm data from
+Postgres — the "Ratings updated Xh ago" freshness banner should
+typically read under 24h — and first visitors after a Render redeploy
+no longer pay the on-demand scrape cost.
+
 ## Shareable URLs
 
 The dashboard reflects its selection in the address bar, so a country,

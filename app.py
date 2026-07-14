@@ -25,6 +25,7 @@ from soccer_ratings.db import (
     import_league_history,
     import_league_ratings,
     init_db,
+    refresh_known_history,
 )
 from soccer_ratings.dashboard import DashboardBindError, run_dashboard
 
@@ -169,6 +170,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional Postgres connection URL. Defaults to DIRECT_DATABASE_URL, then DATABASE_URL.",
     )
 
+    refresh_known_history_parser = subparsers.add_parser(
+        "refresh-known-history",
+        help=(
+            "Re-import history for every country already imported into Postgres "
+            "(DB-only discovery, no live scrape to find them). Intended for a "
+            "scheduled nightly refresh."
+        ),
+    )
+    refresh_known_history_parser.add_argument(
+        "--database-url",
+        help="Optional Postgres connection URL. Defaults to DIRECT_DATABASE_URL, then DATABASE_URL.",
+    )
+
     crawl_country_parser = subparsers.add_parser(
         "crawl-country",
         help="Fetch all league home/away ratings for a country.",
@@ -247,6 +261,8 @@ def main() -> int:
         payload = import_country_history(args.country_url, args.database_url)
     elif args.command == "import-all-history":
         payload = import_all_history(args.database_url)
+    elif args.command == "refresh-known-history":
+        payload = refresh_known_history(args.database_url)
     elif args.command == "crawl-country":
         payload = fetch_country_league_ratings(
             args.country_url,

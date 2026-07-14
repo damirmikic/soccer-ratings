@@ -331,6 +331,70 @@ def import_all_history(database_url: str | None = None) -> dict:
     }
 
 
+def list_countries_with_imported_leagues(database_url: str | None = None) -> list[dict]:
+    """Countries that already have at least one league imported.
+
+    DB-only (no live scrape) so scheduled refresh jobs can discover what
+    to re-import without crawling the whole site just to find out.
+    """
+    with db_cursor(database_url, use_direct=False) as (_, cur):
+        cur.execute(
+            """
+            SELECT DISTINCT c.country_path, c.name
+            FROM countries c
+            JOIN leagues l ON l.country_id = c.id
+            WHERE c.country_path IS NOT NULL
+            ORDER BY c.name ASC
+            """
+        )
+        rows = cur.fetchall()
+    return [{"country_path": row[0], "country": row[1]} for row in rows]
+
+
+def refresh_known_history(database_url: str | None = None) -> dict:
+    """Re-import history for every country already imported into Postgres.
+
+    Meant for a scheduled/nightly job: unlike import_all_history (which
+    crawls every ranked country on the source site), this only touches
+    countries an operator has already imported via the CLI or /admin, so
+    the scope grows naturally as more countries get imported instead of
+    needing to be hardcoded anywhere.
+    """
+    countries = list_countries_with_imported_leagues(database_url)
+    results: list[dict] = []
+    total_leagues_processed = 0
+    total_matches_imported = 0
+    total_deduped_match_count = 0
+    failures: list[dict] = []
+
+    for country in countries:
+        country_path = country["country_path"]
+        try:
+            result = import_country_history(country_path, database_url)
+            results.append(result)
+            total_leagues_processed += int(result.get("leagues_processed", 0))
+            total_matches_imported += int(result.get("matches_imported", 0))
+            total_deduped_match_count += int(result.get("deduped_match_count", 0))
+        except Exception as exc:
+            failures.append(
+                {
+                    "country_url": country_path,
+                    "country": country.get("country"),
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "countries_processed": len(results),
+        "leagues_processed": total_leagues_processed,
+        "matches_imported": total_matches_imported,
+        "deduped_match_count": total_deduped_match_count,
+        "failure_count": len(failures),
+        "failures": failures,
+        "countries": results,
+    }
+
+
 def load_league_history_matches(
     league_url: str,
     database_url: str | None = None,
