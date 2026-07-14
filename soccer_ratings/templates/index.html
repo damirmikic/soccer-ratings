@@ -124,14 +124,17 @@
         </select>
         <button id="import-country-btn"
           style="margin-top:4px;"
-          hx-get="/fragments/country-import"
-          hx-include="#country"
+          hx-post="/fragments/country-import"
+          hx-include="#country, #admin-token"
           hx-target="#country-import-status"
           hx-swap="innerHTML"
           hx-indicator="#country-import-btn"
           onclick="this.textContent='Importing…'">
           Import Country to DB
         </button>
+        <input id="admin-token" name="admin_token" type="password"
+          placeholder="Admin token" autocomplete="off"
+          style="margin-top:4px;font-size:11px;">
         <span id="country-import-status" style="font-size:11px;color:var(--muted);"></span>
       </div>
 
@@ -185,6 +188,18 @@
     });
     document.getElementById("league").addEventListener("htmx:afterSettle", function () {
       document.getElementById("status-metric").textContent = "Live";
+    });
+
+    // Surface auth / rate-limit / server errors instead of failing silently.
+    document.body.addEventListener("htmx:responseError", function (e) {
+      const target = e.detail.target;
+      if (!target) return;
+      let message = "Request failed (" + e.detail.xhr.status + ")";
+      try {
+        const parsed = JSON.parse(e.detail.xhr.responseText);
+        if (parsed && parsed.detail) message = parsed.detail;
+      } catch (err) { /* non-JSON body, keep generic message */ }
+      target.textContent = message;
     });
   </script>
 </body>

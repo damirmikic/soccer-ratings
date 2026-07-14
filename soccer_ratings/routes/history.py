@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
+from ..security import require_admin
 from ..services import DashboardServices
 
 router = APIRouter()
@@ -17,7 +18,7 @@ def league_history_status(request: Request, league_url: str = Query(...)) -> JSO
     return JSONResponse(_svc(request).get_history_status(league_url))
 
 
-@router.get("/api/league-history/build")
+@router.post("/api/league-history/build", dependencies=[Depends(require_admin)])
 def league_history_build(
     request: Request,
     league_url: str = Query(...),
@@ -26,7 +27,7 @@ def league_history_build(
     return JSONResponse(_svc(request).build_history_cache(league_url, bool(refresh)))
 
 
-@router.get("/api/league-history/import")
+@router.post("/api/league-history/import", dependencies=[Depends(require_admin)])
 def league_history_import(request: Request, league_url: str = Query(...)) -> JSONResponse:
     try:
         payload = _svc(request).import_history_to_db(league_url)
@@ -35,7 +36,7 @@ def league_history_import(request: Request, league_url: str = Query(...)) -> JSO
     return JSONResponse(payload)
 
 
-@router.get("/api/country-history/import")
+@router.post("/api/country-history/import", dependencies=[Depends(require_admin)])
 def country_history_import(request: Request, country_url: str = Query(...)) -> JSONResponse:
     try:
         payload = _svc(request).import_country_to_db(country_url)

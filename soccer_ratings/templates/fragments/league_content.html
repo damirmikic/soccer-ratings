@@ -16,16 +16,18 @@
   </div>
   <div class="history-actions">
     <button
-      hx-get="/fragments/history-build"
+      hx-post="/fragments/history-build"
       hx-vals='{"league_url": "{{ league_url }}", "refresh": "1"}'
+      hx-include="#admin-token"
       hx-target="#history-status-inner"
       hx-swap="innerHTML"
       hx-indicator="#history-spinner">
       Build Local Cache
     </button>
     <button
-      hx-get="/fragments/history-import"
+      hx-post="/fragments/history-import"
       hx-vals='{"league_url": "{{ league_url }}"}'
+      hx-include="#admin-token"
       hx-target="#history-status-inner"
       hx-swap="innerHTML"
       hx-indicator="#history-spinner">

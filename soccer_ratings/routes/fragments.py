@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import html
 import pathlib
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from ..security import require_admin
 from ..services import DashboardServices
 
 _TEMPLATES_DIR = pathlib.Path(__file__).parent.parent / "templates"
@@ -16,6 +18,16 @@ router = APIRouter(prefix="/fragments")
 
 def _svc(request: Request) -> DashboardServices:
     return request.app.state.services
+
+
+async def _form_or_query(request: Request, name: str, default: str = "") -> str:
+    """HTMX POST buttons send hx-vals/hx-include values as form fields,
+    while curl-style callers may keep using the query string."""
+    value = request.query_params.get(name, "")
+    if not value:
+        form = await request.form()
+        value = str(form.get(name, ""))
+    return value or default
 
 
 @router.get("/country-options", response_class=HTMLResponse)
@@ -88,14 +100,12 @@ def compare(
     )
 
 
-@router.get("/history-build", response_class=HTMLResponse)
-def history_build(
-    request: Request,
-    league_url: str = Query(...),
-    refresh: int = Query(1),
-) -> HTMLResponse:
+@router.post("/history-build", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def history_build(request: Request) -> HTMLResponse:
+    league_url = await _form_or_query(request, "league_url")
+    refresh = await _form_or_query(request, "refresh", "1")
     try:
-        status = _svc(request).build_history_cache(league_url, bool(refresh))
+        status = _svc(request).build_history_cache(league_url, refresh == "1")
         return _templates.TemplateResponse(
             request,
             "fragments/history_status.html",
@@ -109,8 +119,9 @@ def history_build(
         )
 
 
-@router.get("/history-import", response_class=HTMLResponse)
-def history_import(request: Request, league_url: str = Query(...)) -> HTMLResponse:
+@router.post("/history-import", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def history_import(request: Request) -> HTMLResponse:
+    league_url = await _form_or_query(request, "league_url")
     try:
         status = _svc(request).import_history_to_db(league_url)
         return _templates.TemplateResponse(
@@ -126,8 +137,9 @@ def history_import(request: Request, league_url: str = Query(...)) -> HTMLRespon
         )
 
 
-@router.get("/country-import", response_class=HTMLResponse)
-def country_import(request: Request, country_url: str = Query(...)) -> HTMLResponse:
+@router.post("/country-import", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def country_import(request: Request) -> HTMLResponse:
+    country_url = await _form_or_query(request, "country_url")
     try:
         result = _svc(request).import_country_to_db(country_url)
         leagues = result.get("leagues_processed", 0)
@@ -137,4 +149,4 @@ def country_import(request: Request, country_url: str = Query(...)) -> HTMLRespo
         msg = f"Country import done: {leagues} leagues, {matches} matches{fail_note}."
     except Exception as exc:
         msg = f"Import failed: {exc}"
-    return HTMLResponse(f'<span class="history-cache-meta">{msg}</span>')
+    return HTMLResponse(f'<span class="history-cache-meta">{html.escape(msg)}</span>')

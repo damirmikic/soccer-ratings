@@ -247,9 +247,15 @@ def create_dashboard_handler() -> type[BaseHTTPRequestHandler]:
 # FastAPI app (used by uvicorn / Render deployment)
 # ---------------------------------------------------------------------------
 
+ROBOTS_TXT = """User-agent: *
+Disallow: /fragments/
+Disallow: /api/
+"""
+
+
 def create_dashboard_app():
     from fastapi import FastAPI
-    from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+    from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
     from fastapi.staticfiles import StaticFiles
     from fastapi.templating import Jinja2Templates
 
@@ -257,12 +263,32 @@ def create_dashboard_app():
     from .routes.countries import router as countries_router
     from .routes.fragments import router as fragments_router
     from .routes.history import router as history_router
+    from .security import EXPENSIVE_PATHS, SECURITY_HEADERS, RateLimiter, client_ip
 
     app = FastAPI(
         title="ratings1x2",
         description="soccer match ratings",
     )
     app.state.services = DashboardServices()
+
+    general_limiter = RateLimiter(limit=120, window_seconds=60)
+    expensive_limiter = RateLimiter(limit=5, window_seconds=60)
+
+    @app.middleware("http")
+    async def security_middleware(request: Request, call_next):
+        ip = client_ip(request)
+        limiter = expensive_limiter if request.url.path in EXPENSIVE_PATHS else general_limiter
+        if not limiter.allow(ip):
+            response = JSONResponse(
+                {"detail": "Too many requests, slow down."},
+                status_code=429,
+                headers={"Retry-After": "60"},
+            )
+        else:
+            response = await call_next(request)
+        for header, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(header, value)
+        return response
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
@@ -297,6 +323,10 @@ def create_dashboard_app():
     @app.get("/health", response_class=PlainTextResponse)
     def health() -> str:
         return "ok"
+
+    @app.get("/robots.txt", response_class=PlainTextResponse)
+    def robots() -> str:
+        return ROBOTS_TXT
 
     @app.get("/favicon.svg")
     def favicon() -> Response:

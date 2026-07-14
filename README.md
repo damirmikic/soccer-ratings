@@ -99,7 +99,31 @@ Required environment variables on Render:
 ```bash
 DATABASE_URL=your_supabase_pooler_url
 DIRECT_DATABASE_URL=your_supabase_direct_or_pooler_url
+ADMIN_TOKEN=a_long_random_secret
 ```
+
+## Security
+
+The endpoints that scrape upstream or write to the database
+(`/fragments/history-build`, `/fragments/history-import`,
+`/fragments/country-import`, `/api/league-history/build`,
+`/api/league-history/import`, `/api/country-history/import`) are
+POST-only and require an admin token. Set `ADMIN_TOKEN` in the
+environment (or `.env` locally); if it is unset these endpoints are
+disabled, so a fresh deployment is closed by default.
+
+Supply the token as an `X-Admin-Token` header, an `admin_token` query
+parameter, or the "Admin token" field in the dashboard UI before
+clicking an import button. Generate one with:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+The app also applies per-IP rate limits (120 requests/min in general,
+5/min on the import/build endpoints), sends standard security headers
+including a Content-Security-Policy, and serves a `robots.txt` that
+keeps crawlers away from `/fragments/` and `/api/`.
 
 After the first deploy, initialize and import data from a Render shell or another trusted environment:
 
