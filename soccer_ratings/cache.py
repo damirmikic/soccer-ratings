@@ -21,7 +21,9 @@ class TTLCache:
             return None
         expires_at, value = entry
         if time.monotonic() >= expires_at:
-            del self._entries[key]
+            # pop() instead of del: sync routes run in a thread pool, so two
+            # threads can both see the same expired entry.
+            self._entries.pop(key, None)
             return None
         return value
 

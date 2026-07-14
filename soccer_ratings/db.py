@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -62,7 +62,7 @@ def import_country_rankings(database_url: str | None = None) -> dict:
     countries = fetch_rankings()
     with db_cursor(database_url, use_direct=True) as (conn, cur):
         imported = 0
-        fetched_at = datetime.utcnow()
+        fetched_at = datetime.now(timezone.utc)
         for row in countries:
             country_id = _upsert_country(cur, row["country"], row.get("country_path"), row["rating"])
             cur.execute(
@@ -82,7 +82,7 @@ def import_league_ratings(country_url: str, database_url: str | None = None) -> 
     with db_cursor(database_url, use_direct=True) as (conn, cur):
         imported = 0
         team_snapshots_imported = 0
-        fetched_at = datetime.utcnow()
+        fetched_at = datetime.now(timezone.utc)
         country_name = _country_name_from_path(country_url)
         country_id = _upsert_country(cur, country_name, country_url, None)
         for row in leagues:
@@ -575,6 +575,16 @@ def load_league_home_away_ratings(league_url: str, database_url: str | None = No
                 WHERE rs.scope = 'team'
                   AND rs.league_id = %s
                   AND rs.mode = %s
+                  -- Only the most recent import batch: rows from one import
+                  -- share a single fetched_at, and older batches may contain
+                  -- teams that have since left the league.
+                  AND rs.fetched_at = (
+                      SELECT MAX(rs2.fetched_at)
+                      FROM rating_snapshots rs2
+                      WHERE rs2.scope = 'team'
+                        AND rs2.league_id = rs.league_id
+                        AND rs2.mode = rs.mode
+                  )
                 ORDER BY rs.fetched_at DESC, rs.ranking ASC
                 """,
                 (league_id, mode),

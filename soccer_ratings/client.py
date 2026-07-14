@@ -434,13 +434,22 @@ def dedupe_matches(matches: list[dict]) -> list[dict]:
     return sorted(
         deduped.values(),
         key=lambda row: (
-            str(row.get("date", "")),
+            _chronological_date_key(str(row.get("date", ""))),
             str(row.get("competition", "")),
             str(row.get("home_team", "")),
             str(row.get("away_team", "")),
         ),
         reverse=True,
     )
+
+
+def _chronological_date_key(value: str) -> str:
+    """Rearrange a dd.mm.yy date so string ordering matches chronology."""
+    parts = value.strip().split(".")
+    if len(parts) == 3:
+        day, month, year = parts
+        return f"{year}.{month}.{day}"
+    return value
 
 
 def filter_matches_for_league(matches: list[dict], league_url: str) -> list[dict]:
