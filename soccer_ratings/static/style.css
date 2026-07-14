@@ -494,6 +494,21 @@ input[type="search"]:focus {
   color: var(--muted);
 }
 
+.site-footer {
+  width: min(1320px, calc(100% - 32px));
+  margin: 0 auto 24px;
+  text-align: right;
+}
+
+.site-footer a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.site-footer a:hover {
+  text-decoration: underline;
+}
+
 .multi-body {
   padding: 18px;
   display: grid;
