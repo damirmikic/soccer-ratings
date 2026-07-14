@@ -113,8 +113,7 @@ environment (or `.env` locally); if it is unset these endpoints are
 disabled, so a fresh deployment is closed by default.
 
 Supply the token as an `X-Admin-Token` header, an `admin_token` query
-parameter, or the "Admin token" field in the dashboard UI before
-clicking an import button. Generate one with:
+parameter, or by logging in at `/admin` (see below). Generate one with:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -123,7 +122,21 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 The app also applies per-IP rate limits (120 requests/min in general,
 5/min on the import/build endpoints), sends standard security headers
 including a Content-Security-Policy, and serves a `robots.txt` that
-keeps crawlers away from `/fragments/` and `/api/`.
+keeps crawlers away from `/fragments/`, `/api/`, and `/admin`.
+
+### `/admin`
+
+Data import and cache-building tools ("Import Country to DB", "Build
+Local Cache", "Import To DB") live on their own `/admin` page instead of
+the public dashboard. `/admin` shows a token login form; on success it
+sets an `httponly`, `secure`, `samesite=strict` session cookie (12h
+`max_age`) so the admin buttons don't need the token resubmitted per
+click — `require_admin` accepts this cookie as just another valid
+credential source alongside the header/query/form token, so scripted
+API callers are unaffected. "Log out" (`POST /admin/logout`) clears the
+cookie. There's no separate admin account system — like `ADMIN_TOKEN`
+itself, this is a single shared secret, appropriate for a one-operator
+deployment.
 
 Country-wide imports run as a background job instead of blocking the
 request, since scraping every league in a large country can take minutes

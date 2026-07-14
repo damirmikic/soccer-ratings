@@ -8,6 +8,7 @@ from collections import deque
 from fastapi import HTTPException, Request
 
 ADMIN_TOKEN_ENV = "ADMIN_TOKEN"
+ADMIN_SESSION_COOKIE = "admin_session"
 
 # Endpoints that trigger scrapes or DB writes get a much stricter budget
 # than ordinary page/fragment reads.
@@ -41,13 +42,25 @@ def configured_admin_token() -> str:
     return os.environ.get(ADMIN_TOKEN_ENV, "").strip()
 
 
+def is_admin_session_valid(request: Request) -> bool:
+    """Checks only the /admin login cookie, for pages that need to branch
+    between a login form and the real content rather than raise a 401."""
+    configured = configured_admin_token()
+    if not configured:
+        return False
+    supplied = request.cookies.get(ADMIN_SESSION_COOKIE, "")
+    return bool(supplied) and hmac.compare_digest(supplied, configured)
+
+
 async def require_admin(request: Request) -> None:
     """Guard for endpoints that scrape upstream or write to the database.
 
     The token may arrive as an X-Admin-Token header, an admin_token query
-    parameter, or an admin_token form field (the HTMX buttons use the form
-    field). When ADMIN_TOKEN is not configured the endpoints stay disabled
-    so a fresh deployment is closed by default.
+    parameter, an admin_token form field (the JSON API), or the /admin
+    session cookie set after logging in there (the admin page's buttons
+    rely on this so they don't need to resubmit the token per click). When
+    ADMIN_TOKEN is not configured the endpoints stay disabled so a fresh
+    deployment is closed by default.
     """
     configured = configured_admin_token()
     if not configured:
@@ -56,7 +69,11 @@ async def require_admin(request: Request) -> None:
             detail="Admin actions are disabled. Set the ADMIN_TOKEN environment variable to enable imports.",
         )
 
-    supplied = request.headers.get("x-admin-token", "") or request.query_params.get("admin_token", "")
+    supplied = (
+        request.headers.get("x-admin-token", "")
+        or request.query_params.get("admin_token", "")
+        or request.cookies.get(ADMIN_SESSION_COOKIE, "")
+    )
     if not supplied and request.method == "POST":
         content_type = request.headers.get("content-type", "")
         if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:

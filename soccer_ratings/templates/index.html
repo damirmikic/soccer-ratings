@@ -121,20 +121,6 @@
           hx-on:htmx:after-swap="resetLeagueContent()">
           {% include "fragments/country_options.html" %}
         </select>
-        <button id="import-country-btn"
-          style="margin-top:4px;"
-          hx-post="/fragments/country-import"
-          hx-include="#country, #admin-token"
-          hx-target="#country-import-status"
-          hx-swap="innerHTML"
-          hx-indicator="#country-import-btn"
-          onclick="this.textContent='Importing…'">
-          Import Country to DB
-        </button>
-        <input id="admin-token" name="admin_token" type="password"
-          placeholder="Admin token" autocomplete="off"
-          style="margin-top:4px;font-size:11px;">
-        <span id="country-import-status" style="font-size:11px;color:var(--muted);"></span>
       </div>
 
       <!-- League select: populated by HTMX when country changes, triggers full league content load -->
@@ -186,10 +172,6 @@
       if (el) el.innerHTML = "";
       document.getElementById("status-metric").textContent = "Ready";
     }
-
-    document.getElementById("import-country-btn").addEventListener("htmx:afterRequest", function () {
-      this.textContent = "Import Country to DB";
-    });
 
     document.getElementById("league").addEventListener("htmx:beforeRequest", function () {
       document.getElementById("status-metric").textContent = "Loading…";

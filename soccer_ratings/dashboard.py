@@ -44,6 +44,7 @@ class DashboardBindError(RuntimeError):
 ROBOTS_TXT = """User-agent: *
 Disallow: /fragments/
 Disallow: /api/
+Disallow: /admin
 """
 
 
@@ -53,6 +54,7 @@ def create_dashboard_app():
     from fastapi.staticfiles import StaticFiles
     from fastapi.templating import Jinja2Templates
 
+    from .routes.admin import router as admin_router
     from .routes.compare import router as compare_router
     from .routes.countries import router as countries_router
     from .routes.fragments import router as fragments_router
@@ -92,6 +94,7 @@ def create_dashboard_app():
     app.include_router(compare_router)
     app.include_router(history_router)
     app.include_router(fragments_router)
+    app.include_router(admin_router)
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:

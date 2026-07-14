@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin &ndash; ratings1x2</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.3" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="brand-header">
+      <div class="brand-logo-container">
+        <span class="brand-wordmark">ratings1x2 admin</span>
+        <span class="brand-tagline">Data import &amp; cache tools</span>
+      </div>
+      <form method="post" action="/admin/logout">
+        <button type="submit">Log out</button>
+      </form>
+    </header>
+
+    <section class="controls">
+      <div class="control">
+        <label for="admin-continent">Continent</label>
+        <select id="admin-continent" name="continent"
+          hx-get="/fragments/country-options"
+          hx-trigger="change"
+          hx-target="#admin-country"
+          hx-swap="innerHTML">
+          <option value="">All Continents</option>
+          {% for continent in continents %}
+          <option value="{{ continent }}">{{ continent }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="control">
+        <label for="admin-country">Country</label>
+        <select id="admin-country" name="country_url"
+          hx-get="/fragments/league-options"
+          hx-trigger="change"
+          hx-target="#admin-league"
+          hx-swap="innerHTML">
+          {% include "fragments/country_options.html" %}
+        </select>
+        <button
+          hx-post="/fragments/country-import"
+          hx-include="#admin-country"
+          hx-target="#country-import-status"
+          hx-swap="innerHTML"
+          hx-indicator="#country-import-indicator"
+          style="margin-top: 4px;">
+          Import Country to DB
+        </button>
+        <span id="country-import-indicator" class="htmx-indicator" style="font-size: 11px; color: var(--muted);">Working&hellip;</span>
+        <span id="country-import-status" style="font-size: 11px; color: var(--muted);"></span>
+      </div>
+
+      <div class="control">
+        <label for="admin-league">League</label>
+        <select id="admin-league" name="league_url"
+          hx-get="/admin/league-panel"
+          hx-trigger="change"
+          hx-target="#admin-league-panel"
+          hx-swap="innerHTML">
+          <option value="">Select a country first</option>
+        </select>
+      </div>
+    </section>
+
+    <div id="admin-league-panel"></div>
+  </main>
+
+  <style>
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator { display: inline; }
+  </style>
+</body>
+</html>
