@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fastapi import Request
 
 from .services import DashboardServices
+from .timeutil import format_relative_time
 
 _TEMPLATES_DIR = pathlib.Path(__file__).parent / "templates"
 _STATIC_DIR = pathlib.Path(__file__).parent / "static"
@@ -87,6 +88,7 @@ def create_dashboard_app():
         return response
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+    templates.env.filters["relative_time"] = format_relative_time
 
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
@@ -145,6 +147,8 @@ def create_dashboard_app():
                     "away": ratings.get("away", []),
                     "league_stats": svc.get_league_stats(selected_league),
                     "history_status": svc.get_history_status(selected_league),
+                    "ratings_fetched_at": ratings.get("fetched_at"),
+                    "ratings_source": ratings.get("source", "live"),
                 }
                 if selected_home and selected_away and selected_home != selected_away:
                     comparison = svc.get_comparison(

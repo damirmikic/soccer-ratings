@@ -183,6 +183,22 @@ routes in `soccer_ratings/routes/fragments.py`), so back/forward
 navigation and copy-pasting the current URL both work without any
 client-side routing code.
 
+## Ratings tables
+
+Each league view shows a freshness banner ("Ratings updated 3h ago", via
+`soccer_ratings/timeutil.py`'s `relative_time` Jinja filter) based on the
+`rating_snapshots.fetched_at` timestamp from Postgres, or "Live data —
+not yet cached" when ratings were scraped on the fly instead of loaded
+from the database.
+
+The Home/Away rating tables support client-side sorting (click a column
+header) and a text filter box above them that narrows both tables by
+team name at once — both are plain event-delegated JS in
+`soccer_ratings/static/app.js`, so they keep working after HTMX swaps in
+new league content without any re-initialization step. When a matchup
+is selected in the Single Match tab, the two chosen teams are
+highlighted in their respective tables.
+
 ## Run
 
 Fetch all countries:

@@ -98,8 +98,12 @@ class DashboardServices:
                 type(exc).__name__,
                 exc,
             )
-        if not ratings:
+        if ratings:
+            ratings["source"] = "db"
+        else:
             ratings = fetch_league_home_away_ratings(league_url)
+            ratings["source"] = "live"
+            ratings["fetched_at"] = None
         self._ratings_cache.set(league_url, ratings)
         return ratings
 

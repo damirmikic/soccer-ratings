@@ -8,10 +8,12 @@ from fastapi.templating import Jinja2Templates
 
 from ..security import require_admin
 from ..services import DashboardServices
+from ..timeutil import format_relative_time
 from ..urlstate import build_share_url
 
 _TEMPLATES_DIR = pathlib.Path(__file__).parent.parent / "templates"
 _templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+_templates.env.filters["relative_time"] = format_relative_time
 
 router = APIRouter(prefix="/fragments")
 
@@ -85,6 +87,8 @@ def league_content(
             "away": away,
             "league_stats": svc.get_league_stats(league_url),
             "history_status": svc.get_history_status(league_url),
+            "ratings_fetched_at": ratings.get("fetched_at"),
+            "ratings_source": ratings.get("source", "live"),
         },
     )
     response.headers["HX-Push-Url"] = build_share_url(

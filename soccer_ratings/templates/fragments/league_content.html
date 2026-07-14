@@ -4,6 +4,19 @@
 {% set selected_home = selected_home | default("") %}
 {% set selected_away = selected_away | default("") %}
 {% set margin_percent = margin_percent | default(0.0) %}
+{% set ratings_fetched_at = ratings_fetched_at | default(None) %}
+{% set ratings_source = ratings_source | default("live") %}
+
+<!-- Data freshness -->
+<div class="freshness-banner">
+  {% if ratings_fetched_at %}
+  <span class="freshness-dot"></span>
+  <span>Ratings updated {{ ratings_fetched_at | relative_time }}</span>
+  {% else %}
+  <span class="freshness-dot is-live"></span>
+  <span>Live data &mdash; not yet cached in the database</span>
+  {% endif %}
+</div>
 
 <!-- History cache status (read-only; import/cache actions live on /admin) -->
 <div class="history-cache">
@@ -149,6 +162,11 @@
 </script>
 
 <!-- Rating tables -->
+<div class="control team-filter-control">
+  <label for="team-filter">Filter teams</label>
+  <input type="search" id="team-filter" placeholder="Type a team name&hellip;" autocomplete="off">
+</div>
+
 <section class="panes">
   <article class="pane">
     <div class="pane-header">
@@ -158,14 +176,20 @@
     <div>
       {% if home %}
       <div class="table-wrap">
-        <table>
-          <thead><tr><th>Rank</th><th>Team</th><th>Rating</th></tr></thead>
+        <table data-role="home-ratings">
+          <thead>
+            <tr>
+              <th data-sort-key="rank">Rank</th>
+              <th data-sort-key="team">Team</th>
+              <th data-sort-key="rating">Rating</th>
+            </tr>
+          </thead>
           <tbody>
             {% for t in home %}
-            <tr>
-              <td>{{ t.rank }}</td>
-              <td>{{ t.team }}</td>
-              <td>{{ "%.2f"|format(t.rating) }}</td>
+            <tr data-team="{{ t.team }}">
+              <td data-cell="rank">{{ t.rank }}</td>
+              <td data-cell="team">{{ t.team }}</td>
+              <td data-cell="rating">{{ "%.2f"|format(t.rating) }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -184,14 +208,20 @@
     <div>
       {% if away %}
       <div class="table-wrap">
-        <table>
-          <thead><tr><th>Rank</th><th>Team</th><th>Rating</th></tr></thead>
+        <table data-role="away-ratings">
+          <thead>
+            <tr>
+              <th data-sort-key="rank">Rank</th>
+              <th data-sort-key="team">Team</th>
+              <th data-sort-key="rating">Rating</th>
+            </tr>
+          </thead>
           <tbody>
             {% for t in away %}
-            <tr>
-              <td>{{ t.rank }}</td>
-              <td>{{ t.team }}</td>
-              <td>{{ "%.2f"|format(t.rating) }}</td>
+            <tr data-team="{{ t.team }}">
+              <td data-cell="rank">{{ t.rank }}</td>
+              <td data-cell="team">{{ t.team }}</td>
+              <td data-cell="rating">{{ "%.2f"|format(t.rating) }}</td>
             </tr>
             {% endfor %}
           </tbody>

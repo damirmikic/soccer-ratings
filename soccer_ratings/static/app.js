@@ -16,6 +16,83 @@ document.addEventListener("click", (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Rating tables: sort, filter, and highlight the two selected teams.
+// Event delegation means none of this needs re-initializing after HTMX
+// swaps in fresh league content.
+// ---------------------------------------------------------------------------
+
+function sortRatingsTable(table, key, direction) {
+  const tbody = table.querySelector("tbody");
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll("tr[data-team]"));
+  const readValue = (row) => {
+    const cell = row.querySelector(`[data-cell="${key}"]`);
+    const raw = cell ? cell.textContent.trim() : "";
+    return key === "team" ? raw.toLowerCase() : parseFloat(raw) || 0;
+  };
+  rows.sort((a, b) => {
+    const av = readValue(a);
+    const bv = readValue(b);
+    if (av < bv) return direction === "asc" ? -1 : 1;
+    if (av > bv) return direction === "asc" ? 1 : -1;
+    return 0;
+  });
+  rows.forEach((row) => tbody.appendChild(row));
+}
+
+document.addEventListener("click", (e) => {
+  const th = e.target.closest("th[data-sort-key]");
+  if (!th) return;
+  const table = th.closest("table");
+  if (!table) return;
+  const key = th.dataset.sortKey;
+  const direction = th.dataset.sortDir === "asc" ? "desc" : "asc";
+  table.querySelectorAll("th[data-sort-key]").forEach((h) => {
+    delete h.dataset.sortDir;
+    h.classList.remove("is-sorted-asc", "is-sorted-desc");
+  });
+  th.dataset.sortDir = direction;
+  th.classList.add(direction === "asc" ? "is-sorted-asc" : "is-sorted-desc");
+  sortRatingsTable(table, key, direction);
+});
+
+document.addEventListener("input", (e) => {
+  if (!e.target || e.target.id !== "team-filter") return;
+  const query = e.target.value.trim().toLowerCase();
+  document
+    .querySelectorAll('table[data-role="home-ratings"] tr[data-team], table[data-role="away-ratings"] tr[data-team]')
+    .forEach((row) => {
+      const team = (row.dataset.team || "").toLowerCase();
+      row.style.display = team.includes(query) ? "" : "none";
+    });
+});
+
+function highlightSelectedTeams() {
+  const homeTeam = document.getElementById("home-team");
+  const awayTeam = document.getElementById("away-team");
+  document.querySelectorAll('table[data-role="home-ratings"] tr[data-team]').forEach((row) => {
+    row.classList.toggle("is-selected-team", !!homeTeam && row.dataset.team === homeTeam.value);
+  });
+  document.querySelectorAll('table[data-role="away-ratings"] tr[data-team]').forEach((row) => {
+    row.classList.toggle("is-selected-team", !!awayTeam && row.dataset.team === awayTeam.value);
+  });
+}
+
+document.addEventListener("change", (e) => {
+  if (e.target && (e.target.id === "home-team" || e.target.id === "away-team")) {
+    highlightSelectedTeams();
+  }
+});
+
+document.addEventListener("htmx:afterSettle", (e) => {
+  if (e.target && e.target.id === "league-content") {
+    highlightSelectedTeams();
+  }
+});
+
+document.addEventListener("DOMContentLoaded", highlightSelectedTeams);
+
+// ---------------------------------------------------------------------------
 // Multi-match builder
 // Reads team data from <script type="application/json" id="league-data">
 // injected by the league_content.html fragment.

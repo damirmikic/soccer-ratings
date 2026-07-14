@@ -501,10 +501,11 @@ def load_league_home_away_ratings(league_url: str, database_url: str | None = No
 
         league_id = league_row[0]
         payload = {"league_url": league_row[1]}
+        fetched_at = None
         for mode in ("home", "away", "general"):
             cur.execute(
                 """
-                SELECT t.name, t.team_path, rs.ranking, rs.rating
+                SELECT t.name, t.team_path, rs.ranking, rs.rating, rs.fetched_at
                 FROM rating_snapshots rs
                 JOIN teams t ON t.id = rs.team_id
                 WHERE rs.scope = 'team'
@@ -532,6 +533,11 @@ def load_league_home_away_ratings(league_url: str, database_url: str | None = No
                     }
                 )
             payload[mode] = deduped_rows
+            # Rows are ordered fetched_at DESC, so the first row (if any) is
+            # this mode's freshest snapshot timestamp.
+            if rows and rows[0][4] is not None:
+                fetched_at = rows[0][4] if fetched_at is None else max(fetched_at, rows[0][4])
+        payload["fetched_at"] = fetched_at
 
     if not payload.get("home") or not payload.get("away"):
         return None

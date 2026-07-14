@@ -93,6 +93,33 @@ class GetRatingsFallbackTests(unittest.TestCase):
         self.assertTrue(any("connection refused" in message for message in logs.output))
 
 
+class GetRatingsFreshnessTaggingTests(unittest.TestCase):
+    @mock.patch("soccer_ratings.services.load_league_home_away_ratings_from_db")
+    def test_db_result_is_tagged_with_source_db_and_keeps_fetched_at(self, mock_load_db) -> None:
+        fetched_at = object()  # opaque sentinel; get_ratings must not transform it
+        mock_load_db.return_value = {"home": [{"team": "A"}], "away": [{"team": "B"}], "fetched_at": fetched_at}
+
+        svc = DashboardServices()
+        result = svc.get_ratings("/England/Premier-League/")
+
+        self.assertEqual(result["source"], "db")
+        self.assertIs(result["fetched_at"], fetched_at)
+
+    @mock.patch("soccer_ratings.services.fetch_league_home_away_ratings")
+    @mock.patch("soccer_ratings.services.load_league_home_away_ratings_from_db")
+    def test_live_scrape_result_is_tagged_source_live_with_no_fetched_at(
+        self, mock_load_db, mock_fetch_live
+    ) -> None:
+        mock_load_db.return_value = None
+        mock_fetch_live.return_value = {"home": [{"team": "A"}], "away": [{"team": "B"}]}
+
+        svc = DashboardServices()
+        result = svc.get_ratings("/England/Premier-League/")
+
+        self.assertEqual(result["source"], "live")
+        self.assertIsNone(result["fetched_at"])
+
+
 class GetLeagueStatsFallbackTests(unittest.TestCase):
     @mock.patch("soccer_ratings.services.load_cached_league_history")
     @mock.patch("soccer_ratings.services.load_league_summary_stats")
