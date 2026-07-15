@@ -70,6 +70,29 @@
     </section>
 
     <div id="admin-league-panel"></div>
+
+    <section class="history-cache" style="margin-top: 22px; display: block;">
+      <div style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+        <div>
+          <strong>Model Tuning</strong>
+          <div class="history-cache-meta">
+            Walk-forward backtests every imported league at several history-calibration weights and
+            reports which minimizes Brier score. Read-only &mdash; doesn't change the live model.
+          </div>
+        </div>
+        <div>
+          <button
+            hx-post="/fragments/calibration-sweep"
+            hx-target="#calibration-sweep-status"
+            hx-swap="innerHTML"
+            hx-indicator="#calibration-sweep-indicator">
+            Run Calibration Sweep (All Leagues)
+          </button>
+          <span id="calibration-sweep-indicator" class="htmx-indicator" style="font-size: 11px; color: var(--muted);">Starting&hellip;</span>
+        </div>
+      </div>
+      <div id="calibration-sweep-status" style="margin-top: 12px;"></div>
+    </section>
   </main>
 
   <style>

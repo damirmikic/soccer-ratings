@@ -1,0 +1,80 @@
+{% if job is none %}
+<span class="history-cache-meta">Calibration sweep job not found (server may have restarted).</span>
+{% elif job.status == "running" %}
+<span class="history-cache-meta"
+  hx-get="/fragments/calibration-sweep-status?job_id={{ job.id }}"
+  hx-trigger="load delay:1500ms"
+  hx-target="this"
+  hx-swap="outerHTML">
+  {% if job.total %}
+  Sweeping&hellip; {{ job.current }}/{{ job.total }} leagues &middot; {{ job.message }}
+  {% else %}
+  Starting calibration sweep&hellip;
+  {% endif %}
+</span>
+{% elif job.status == "done" %}
+{% set result = job.result %}
+{% set summary = result.summary %}
+<div class="history-cache-meta">
+  Swept {{ result.leagues_evaluated }} of {{ result.leagues_considered }} leagues
+  ({{ result.leagues_skipped }} skipped &mdash; too few matches).
+</div>
+
+{% if summary %}
+<div class="league-stats" style="grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 10px 0;">
+  <div class="league-stat">
+    <strong>Median Best Weight Scale</strong>
+    <span>{{ summary.median_best_weight_scale }}</span>
+  </div>
+  <div class="league-stat">
+    <strong>Avg Brier Improvement</strong>
+    <span>{% if summary.avg_brier_improvement_vs_default is not none %}{{ "%.4f"|format(summary.avg_brier_improvement_vs_default) }}{% else %}-{% endif %}</span>
+  </div>
+</div>
+<div class="market-meta" style="margin-bottom:10px;">
+  Median of each league's best-performing weight_scale &mdash; near 1.0 means the current default
+  is about right, higher means the model should trust history more, lower means less. Improvement
+  is versus the current default (weight_scale 1.0), always &ge; 0 since 1.0 is one of the candidates tested.
+</div>
+{% endif %}
+
+{% if result.leagues %}
+<div class="table-wrap" style="max-height:320px;">
+  <table>
+    <thead>
+      <tr>
+        <th>Country</th>
+        <th>League</th>
+        <th>Matches</th>
+        <th>Best Scale</th>
+        <th>Best Brier</th>
+        <th>Default (1.0) Brier</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in result.leagues %}
+      <tr>
+        <td>{{ row.country or "-" }}</td>
+        <td>{{ row.league or row.league_path }}</td>
+        <td>{{ row.matches_available }}</td>
+        <td>{{ row.best.weight_scale }}</td>
+        <td>{{ "%.4f"|format(row.best.avg_brier) }}</td>
+        <td>{% if row.default_avg_brier is not none %}{{ "%.4f"|format(row.default_avg_brier) }}{% else %}-{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="market-meta">No league had enough imported history to evaluate.</div>
+{% endif %}
+
+{% if result.skipped_leagues %}
+<div class="market-meta" style="margin-top:8px;">
+  Skipped (fewer than {{ result.skipped_leagues[0].min_matches_required }} matches):
+  {% for row in result.skipped_leagues %}{{ row.league or row.league_path }}{% if not loop.last %}, {% endif %}{% endfor %}
+</div>
+{% endif %}
+{% else %}
+<span class="history-cache-meta">Calibration sweep failed: {{ job.error }}</span>
+{% endif %}

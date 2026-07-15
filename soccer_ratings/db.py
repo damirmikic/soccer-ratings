@@ -16,6 +16,7 @@ from .client import (
     league_code_from_url,
 )
 from .env import load_env_file
+from .tuning import DEFAULT_MIN_MATCHES, DEFAULT_WEIGHT_SCALES, summarize_league_sweeps, sweep_weight_scales
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 load_env_file()
@@ -392,6 +393,74 @@ def refresh_known_history(database_url: str | None = None) -> dict:
         "failure_count": len(failures),
         "failures": failures,
         "countries": results,
+    }
+
+
+def list_all_imported_leagues(database_url: str | None = None) -> list[dict]:
+    """Every league that has been imported (has a row in `leagues`), across
+    all countries — DB-only, for global operations like the calibration
+    sweep that need to touch every known league without crawling the
+    source site to discover them.
+    """
+    with db_cursor(database_url, use_direct=False) as (_, cur):
+        cur.execute(
+            """
+            SELECT l.league_path, l.name, c.name
+            FROM leagues l
+            LEFT JOIN countries c ON c.id = l.country_id
+            ORDER BY c.name ASC NULLS LAST, l.name ASC
+            """
+        )
+        rows = cur.fetchall()
+    return [{"league_path": row[0], "league": row[1], "country": row[2]} for row in rows]
+
+
+def run_calibration_sweep(
+    database_url: str | None = None,
+    *,
+    weight_scales: tuple[float, ...] = DEFAULT_WEIGHT_SCALES,
+    min_matches: int = DEFAULT_MIN_MATCHES,
+    on_progress: Callable[[int, int, str], None] | None = None,
+) -> dict:
+    """Runs soccer_ratings.tuning's weight_scale sweep against every
+    imported league's stored history and rolls the per-league results up
+    into a single across-leagues recommendation. Read-only: this reports
+    what would have minimized Brier score, it never changes the live
+    model's weight_scale itself.
+    """
+    leagues = list_all_imported_leagues(database_url)
+    total = len(leagues)
+    league_sweeps: list[dict] = []
+
+    for index, league in enumerate(leagues, start=1):
+        league_path = league["league_path"]
+        matches = load_league_history_matches(league_path, database_url)
+        sweep = sweep_weight_scales(matches, weight_scales=weight_scales, min_matches=min_matches)
+        default_result = next(
+            (result for result in sweep["results"] if result["weight_scale"] == 1.0), None
+        )
+        league_sweeps.append(
+            {
+                "league": league["league"],
+                "league_path": league_path,
+                "country": league["country"],
+                "default_avg_brier": default_result["avg_brier"] if default_result else None,
+                **sweep,
+            }
+        )
+        if on_progress:
+            on_progress(index, total, league["league"] or league_path)
+
+    evaluated = [row for row in league_sweeps if row["best"] is not None]
+    skipped = [row for row in league_sweeps if row["best"] is None]
+
+    return {
+        "leagues_considered": total,
+        "leagues_evaluated": len(evaluated),
+        "leagues_skipped": len(skipped),
+        "leagues": evaluated,
+        "skipped_leagues": skipped,
+        "summary": summarize_league_sweeps(league_sweeps),
     }
 
 

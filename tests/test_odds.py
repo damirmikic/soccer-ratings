@@ -286,6 +286,48 @@ class HistoricalCalibrationTests(unittest.TestCase):
             places=3,
         )
 
+    def test_calibrate_probabilities_with_history_weight_scale_zero_ignores_history(self) -> None:
+        base_probabilities = {"home": 0.5, "draw": 0.22, "away": 0.28}
+        historical_context = {
+            "effective_sample_size": 18.0,
+            "draw_rate": 0.9,
+            "home_share_non_draw": 0.1,
+        }
+
+        calibrated = calibrate_probabilities_with_history(
+            base_probabilities, historical_context, weight_scale=0.0
+        )
+
+        self.assertEqual(calibrated, {key: round(value, 4) for key, value in base_probabilities.items()})
+
+    def test_calibrate_probabilities_with_history_default_weight_scale_matches_scale_one(self) -> None:
+        base_probabilities = {"home": 0.5, "draw": 0.22, "away": 0.28}
+        historical_context = {
+            "effective_sample_size": 18.0,
+            "draw_rate": 0.4,
+            "home_share_non_draw": 0.55,
+        }
+
+        default_call = calibrate_probabilities_with_history(base_probabilities, historical_context)
+        explicit_scale_one = calibrate_probabilities_with_history(
+            base_probabilities, historical_context, weight_scale=1.0
+        )
+
+        self.assertEqual(default_call, explicit_scale_one)
+
+    def test_calibrate_probabilities_with_history_higher_weight_scale_trusts_history_more(self) -> None:
+        base_probabilities = {"home": 0.5, "draw": 0.22, "away": 0.28}
+        historical_context = {
+            "effective_sample_size": 18.0,
+            "draw_rate": 0.9,
+            "home_share_non_draw": 0.55,
+        }
+
+        scale_one = calibrate_probabilities_with_history(base_probabilities, historical_context, weight_scale=1.0)
+        scale_two = calibrate_probabilities_with_history(base_probabilities, historical_context, weight_scale=2.0)
+
+        self.assertGreater(scale_two["draw"], scale_one["draw"])
+
     def test_estimate_expected_goals_blends_history_when_available(self) -> None:
         expected_goals = estimate_expected_goals(
             2100.0,

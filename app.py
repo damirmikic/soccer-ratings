@@ -7,6 +7,7 @@ from pathlib import Path
 
 from soccer_ratings.env import load_env_file
 from soccer_ratings.backtest import run_league_backtest
+from soccer_ratings.tuning import DEFAULT_WEIGHT_SCALES, sweep_weight_scales
 from soccer_ratings.client import (
     DEFAULT_URL,
     build_and_cache_league_history,
@@ -211,6 +212,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional Postgres connection URL. Defaults to DATABASE_URL.",
     )
 
+    tune_calibration_parser = subparsers.add_parser(
+        "tune-calibration",
+        help=(
+            "Walk-forward backtest a league at several history-calibration weights and report "
+            "which minimizes Brier score, to check whether the model should trust league history "
+            "more or less than the current default."
+        ),
+    )
+    tune_calibration_parser.add_argument(
+        "--league-url",
+        required=True,
+        help="League path or URL, for example /England/UK1/.",
+    )
+    tune_calibration_parser.add_argument(
+        "--weight-scales",
+        type=float,
+        nargs="+",
+        default=list(DEFAULT_WEIGHT_SCALES),
+        help="Candidate weight_scale values to try (0.0 = ratings-only model, 1.0 = current default).",
+    )
+    tune_calibration_parser.add_argument(
+        "--min-matches",
+        type=int,
+        default=30,
+        help="Skip the sweep if the league has fewer completed matches than this (avoids tuning on noise).",
+    )
+    tune_calibration_parser.add_argument(
+        "--database-url",
+        help="Optional Postgres connection URL. Defaults to DATABASE_URL.",
+    )
+
     crawl_country_parser = subparsers.add_parser(
         "crawl-country",
         help="Fetch all league home/away ratings for a country.",
@@ -297,6 +329,13 @@ def main() -> int:
             matches,
             edge_threshold_percent=args.edge_threshold,
             stake=args.stake,
+        )
+    elif args.command == "tune-calibration":
+        matches = load_league_history_matches(args.league_url, args.database_url)
+        payload = sweep_weight_scales(
+            matches,
+            weight_scales=tuple(args.weight_scales),
+            min_matches=args.min_matches,
         )
     elif args.command == "crawl-country":
         payload = fetch_country_league_ratings(
