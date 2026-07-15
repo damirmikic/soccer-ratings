@@ -457,6 +457,29 @@ across leagues, that's a signal to update the default in
 `calibrate_probabilities_with_history`, not something applied
 automatically.
 
+### Running the sweep across every imported league at once
+
+The `/admin` page has a **Model Tuning** section with a **"Run Calibration
+Sweep (All Leagues)"** button. It runs `tune-calibration`'s sweep against
+every league that has been imported into Postgres (DB-only discovery, the
+same `leagues` table `refresh-known-history` uses — no live scrape), as a
+background job so it doesn't block the request or hit Render's timeout on
+a large database. The result summarizes:
+
+- each league's best-performing `weight_scale` and how much it beat the
+  current default (`weight_scale=1.0`) by, in average Brier score
+- the **median best `weight_scale`** across all evaluated leagues — near
+  `1.0` means the current default is about right; consistently higher or
+  lower is a signal worth acting on
+- leagues skipped for having too few matches
+
+Also available headlessly:
+
+```bash
+POST /api/calibration-sweep      # starts the job, returns 202 + job payload
+GET  /api/calibration-sweep/status?job_id=...
+```
+
 ## Tests
 
 ```bash

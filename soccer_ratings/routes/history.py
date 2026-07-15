@@ -56,3 +56,21 @@ def country_history_import_status(request: Request, job_id: str = Query(...)) ->
     if job is None:
         raise HTTPException(status_code=404, detail="Unknown job id")
     return JSONResponse(job)
+
+
+@router.post("/api/calibration-sweep", dependencies=[Depends(require_admin)])
+def calibration_sweep(request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
+    """Starts an async job — sweeping every imported league can take a
+    while, long enough to hit Render's request timeout."""
+    svc = _svc(request)
+    job_id = svc.start_calibration_sweep_job()
+    background_tasks.add_task(svc.run_calibration_sweep_job, job_id)
+    return JSONResponse(svc.get_job(job_id), status_code=202)
+
+
+@router.get("/api/calibration-sweep/status")
+def calibration_sweep_status(request: Request, job_id: str = Query(...)) -> JSONResponse:
+    job = _svc(request).get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown job id")
+    return JSONResponse(job)

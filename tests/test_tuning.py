@@ -3,6 +3,7 @@ import unittest
 from soccer_ratings.odds import calculate_match_probabilities
 from soccer_ratings.tuning import (
     evaluate_weight_scale,
+    summarize_league_sweeps,
     sweep_weight_scales,
     walk_forward_predictions,
 )
@@ -138,6 +139,64 @@ class SweepWeightScalesTests(unittest.TestCase):
         result = sweep_weight_scales(matches, weight_scales=(0.0, 1.0, 2.0), min_matches=10)
 
         self.assertEqual(result["best"], min(result["results"], key=lambda r: r["avg_brier"]))
+
+
+def make_league_sweep(weight_scale: float, best_brier: float, default_brier: float | None) -> dict:
+    results = [{"weight_scale": 1.0, "avg_brier": default_brier, "matches_evaluated": 40}] if default_brier is not None else []
+    if weight_scale != 1.0 or default_brier is None:
+        results.append({"weight_scale": weight_scale, "avg_brier": best_brier, "matches_evaluated": 40})
+    return {
+        "matches_available": 40,
+        "results": results,
+        "best": {"weight_scale": weight_scale, "avg_brier": best_brier, "matches_evaluated": 40},
+    }
+
+
+class SummarizeLeagueSweepsTests(unittest.TestCase):
+    def test_returns_none_when_no_league_had_enough_data(self) -> None:
+        self.assertIsNone(summarize_league_sweeps([{"best": None}, {"best": None}]))
+
+    def test_ignores_leagues_without_a_best_result(self) -> None:
+        summary = summarize_league_sweeps(
+            [
+                make_league_sweep(weight_scale=1.5, best_brier=0.5, default_brier=0.6),
+                {"best": None},
+            ]
+        )
+        self.assertEqual(summary["leagues_evaluated"], 1)
+
+    def test_median_best_weight_scale_odd_count(self) -> None:
+        summary = summarize_league_sweeps(
+            [
+                make_league_sweep(0.5, 0.5, 0.6),
+                make_league_sweep(1.0, 0.5, 0.6),
+                make_league_sweep(2.0, 0.5, 0.6),
+            ]
+        )
+        self.assertEqual(summary["median_best_weight_scale"], 1.0)
+
+    def test_median_best_weight_scale_even_count_averages_middle_two(self) -> None:
+        summary = summarize_league_sweeps(
+            [
+                make_league_sweep(0.5, 0.5, 0.6),
+                make_league_sweep(1.5, 0.5, 0.6),
+            ]
+        )
+        self.assertEqual(summary["median_best_weight_scale"], 1.0)
+
+    def test_avg_brier_improvement_is_positive_when_tuning_helps(self) -> None:
+        summary = summarize_league_sweeps(
+            [
+                make_league_sweep(2.0, best_brier=0.40, default_brier=0.60),
+                make_league_sweep(1.5, best_brier=0.45, default_brier=0.55),
+            ]
+        )
+        # (0.60-0.40 + 0.55-0.45) / 2 = 0.15
+        self.assertAlmostEqual(summary["avg_brier_improvement_vs_default"], 0.15, places=4)
+
+    def test_avg_brier_improvement_none_when_default_scale_never_tested(self) -> None:
+        summary = summarize_league_sweeps([make_league_sweep(2.0, best_brier=0.40, default_brier=None)])
+        self.assertIsNone(summary["avg_brier_improvement_vs_default"])
 
 
 if __name__ == "__main__":

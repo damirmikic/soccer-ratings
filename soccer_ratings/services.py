@@ -23,6 +23,7 @@ from .db import (
 from .db import (
     load_league_home_away_ratings as load_league_home_away_ratings_from_db,
     load_league_summary_stats,
+    run_calibration_sweep,
 )
 from .jobs import JobManager
 
@@ -48,6 +49,7 @@ class DashboardServices:
         self._known_leagues_cache = TTLCache(_KNOWN_LEAGUES_CACHE_TTL_SECONDS)
         self._jobs = JobManager()
         self._active_country_imports: dict[str, str] = {}
+        self._active_calibration_sweep_job_id: str | None = None
 
     def get_countries(self) -> list[dict]:
         cached = self._countries_cache.get(_COUNTRIES_CACHE_KEY)
@@ -287,6 +289,28 @@ class DashboardServices:
 
         def task(on_progress):
             return import_country_history_to_db(country_url, on_progress=on_progress)
+
+        self._jobs.run(job_id, task)
+
+    def start_calibration_sweep_job(self) -> str:
+        """Kick off (or reuse) a background calibration sweep across every
+        imported league. Reuses a running job the same way country imports
+        do, so a double-click doesn't queue a second sweep.
+        """
+        if self._active_calibration_sweep_job_id and self._jobs.is_running(
+            self._active_calibration_sweep_job_id
+        ):
+            return self._active_calibration_sweep_job_id
+
+        job_id = self._jobs.create(kind="calibration_sweep", label="all imported leagues")
+        self._active_calibration_sweep_job_id = job_id
+        return job_id
+
+    def run_calibration_sweep_job(self, job_id: str) -> None:
+        """Blocking worker body — schedule via BackgroundTasks, never call directly from a request."""
+
+        def task(on_progress):
+            return run_calibration_sweep(on_progress=on_progress)
 
         self._jobs.run(job_id, task)
 

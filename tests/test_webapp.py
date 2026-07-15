@@ -47,6 +47,49 @@ class StubServices:
     def get_job(self, job_id):
         return self._jobs.get(job_id)
 
+    def start_calibration_sweep_job(self):
+        return self._jobs.create(kind="calibration_sweep", label="all imported leagues")
+
+    def run_calibration_sweep_job(self, job_id):
+        self._jobs.run(
+            job_id,
+            lambda on_progress: {
+                "leagues_considered": 2,
+                "leagues_evaluated": 1,
+                "leagues_skipped": 1,
+                "leagues": [
+                    {
+                        "league": "Premier League",
+                        "league_path": "/England/Premier-League/",
+                        "country": "England",
+                        "matches_available": 50,
+                        "min_matches_required": 30,
+                        "best": {"weight_scale": 1.5, "avg_brier": 0.5, "matches_evaluated": 50},
+                        "default_avg_brier": 0.6,
+                        "results": [
+                            {"weight_scale": 1.0, "avg_brier": 0.6, "matches_evaluated": 50},
+                            {"weight_scale": 1.5, "avg_brier": 0.5, "matches_evaluated": 50},
+                        ],
+                    }
+                ],
+                "skipped_leagues": [
+                    {
+                        "league": "Tercera",
+                        "league_path": "/Spain/Regional/",
+                        "country": "Spain",
+                        "matches_available": 5,
+                        "min_matches_required": 30,
+                        "best": None,
+                    }
+                ],
+                "summary": {
+                    "leagues_evaluated": 1,
+                    "median_best_weight_scale": 1.5,
+                    "avg_brier_improvement_vs_default": 0.1,
+                },
+            },
+        )
+
 
 def make_client() -> TestClient:
     app = create_dashboard_app()
@@ -104,6 +147,8 @@ class AdminAuthTests(unittest.TestCase):
             "/fragments/history-build?league_url=/x/",
             "/fragments/history-import?league_url=/x/",
             "/fragments/country-import?country_url=/x/",
+            "/api/calibration-sweep",
+            "/fragments/calibration-sweep",
         ):
             # Fresh app per request so the strict per-IP budget on these
             # endpoints doesn't turn later responses into 429s.
@@ -192,6 +237,63 @@ class CountryImportBackgroundJobTests(unittest.TestCase):
     def test_api_country_import_status_404s_for_unknown_job(self) -> None:
         client = make_client()
         response = client.get("/api/country-history/import/status?job_id=nope")
+        self.assertEqual(response.status_code, 404)
+
+
+class CalibrationSweepBackgroundJobTests(unittest.TestCase):
+    """Mirrors CountryImportBackgroundJobTests — the sweep must never
+    block the request either, since it can take a while across many
+    leagues. See services.py start_calibration_sweep_job /
+    run_calibration_sweep_job."""
+
+    @mock.patch.dict(os.environ, {"ADMIN_TOKEN": "secret"})
+    def test_calibration_sweep_requires_token(self) -> None:
+        client = make_client()
+        response = client.post("/fragments/calibration-sweep")
+        self.assertEqual(response.status_code, 401)
+
+    @mock.patch.dict(os.environ, {"ADMIN_TOKEN": "secret"})
+    def test_calibration_sweep_fragment_returns_immediately_and_completes_via_polling(self) -> None:
+        client = make_client()
+        response = client.post(
+            "/fragments/calibration-sweep",
+            headers={"X-Admin-Token": "secret"},
+        )
+        self.assertEqual(response.status_code, 200)
+        job_id_match = re.search(r"job_id=([0-9a-f]{32})", response.text)
+        self.assertIsNotNone(job_id_match, response.text)
+
+        status_response = client.get(f"/fragments/calibration-sweep-status?job_id={job_id_match.group(1)}")
+        self.assertEqual(status_response.status_code, 200)
+        self.assertIn("Swept 1 of 2 leagues", status_response.text)
+        self.assertIn("Premier League", status_response.text)
+        self.assertIn("Tercera", status_response.text)
+
+    def test_calibration_sweep_status_handles_unknown_job_id(self) -> None:
+        client = make_client()
+        response = client.get("/fragments/calibration-sweep-status?job_id=does-not-exist")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Calibration sweep job not found", response.text)
+
+    @mock.patch.dict(os.environ, {"ADMIN_TOKEN": "secret"})
+    def test_api_calibration_sweep_returns_202_with_job_payload(self) -> None:
+        client = make_client()
+        response = client.post(
+            "/api/calibration-sweep",
+            headers={"X-Admin-Token": "secret"},
+        )
+        self.assertEqual(response.status_code, 202)
+        body = response.json()
+        self.assertEqual(body["kind"], "calibration_sweep")
+
+        status_response = client.get(f"/api/calibration-sweep/status?job_id={body['id']}")
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(status_response.json()["status"], "done")
+        self.assertEqual(status_response.json()["result"]["leagues_evaluated"], 1)
+
+    def test_api_calibration_sweep_status_404s_for_unknown_job(self) -> None:
+        client = make_client()
+        response = client.get("/api/calibration-sweep/status?job_id=nope")
         self.assertEqual(response.status_code, 404)
 
 

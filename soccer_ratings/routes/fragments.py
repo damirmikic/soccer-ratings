@@ -217,3 +217,24 @@ def import_job_status(request: Request, job_id: str = Query(...)) -> HTMLRespons
         "fragments/import_job_status.html",
         {"job": _svc(request).get_job(job_id)},
     )
+
+
+@router.post("/calibration-sweep", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def calibration_sweep(request: Request, background_tasks: BackgroundTasks) -> HTMLResponse:
+    svc = _svc(request)
+    job_id = svc.start_calibration_sweep_job()
+    background_tasks.add_task(svc.run_calibration_sweep_job, job_id)
+    return _templates.TemplateResponse(
+        request,
+        "fragments/calibration_sweep_status.html",
+        {"job": svc.get_job(job_id)},
+    )
+
+
+@router.get("/calibration-sweep-status", response_class=HTMLResponse)
+def calibration_sweep_status(request: Request, job_id: str = Query(...)) -> HTMLResponse:
+    return _templates.TemplateResponse(
+        request,
+        "fragments/calibration_sweep_status.html",
+        {"job": _svc(request).get_job(job_id)},
+    )

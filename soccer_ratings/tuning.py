@@ -148,3 +148,41 @@ def sweep_weight_scales(
         "best": best,
         "current_default_scale": 1.0,
     }
+
+
+def summarize_league_sweeps(league_sweeps: list[dict]) -> dict | None:
+    """Roll up one sweep_weight_scales() result per league (each with a
+    "league"/"league_path"/"country" identifier merged in by the caller)
+    into a single across-leagues recommendation: what weight_scale keeps
+    coming out on top, and how much would using it improve Brier score
+    over the current default (1.0)?
+    """
+    evaluated = [row for row in league_sweeps if row.get("best") is not None]
+    if not evaluated:
+        return None
+
+    best_scales = sorted(row["best"]["weight_scale"] for row in evaluated)
+    count = len(best_scales)
+    median_best_scale = (
+        best_scales[count // 2]
+        if count % 2 == 1
+        else (best_scales[count // 2 - 1] + best_scales[count // 2]) / 2.0
+    )
+
+    improvements = []
+    for row in evaluated:
+        default_result = next(
+            (result for result in row["results"] if result["weight_scale"] == 1.0), None
+        )
+        if default_result is not None:
+            improvements.append(default_result["avg_brier"] - row["best"]["avg_brier"])
+
+    avg_brier_improvement = sum(improvements) / len(improvements) if improvements else None
+
+    return {
+        "leagues_evaluated": count,
+        "median_best_weight_scale": round(median_best_scale, 3),
+        "avg_brier_improvement_vs_default": (
+            round(avg_brier_improvement, 4) if avg_brier_improvement is not None else None
+        ),
+    }
