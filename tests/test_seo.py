@@ -65,6 +65,10 @@ class OpenGraphTagsTests(unittest.TestCase):
         patches = (
             mock.patch("soccer_ratings.services.fetch_all_rankings", return_value=_COUNTRIES),
             mock.patch(
+                "soccer_ratings.services.fetch_country_leagues",
+                side_effect=_fake_load_country_leagues,
+            ),
+            mock.patch(
                 "soccer_ratings.services.load_country_leagues_from_db",
                 side_effect=_fake_load_country_leagues,
             ),

@@ -23,6 +23,7 @@ _RATINGS = {
 
 _PATCHES = (
     mock.patch("soccer_ratings.services.fetch_all_rankings", return_value=_COUNTRIES),
+    mock.patch("soccer_ratings.services.fetch_country_leagues", return_value=_LEAGUES),
     mock.patch("soccer_ratings.services.load_country_leagues_from_db", return_value=_LEAGUES),
     mock.patch("soccer_ratings.services.load_league_home_away_ratings_from_db", return_value=_RATINGS),
     mock.patch("soccer_ratings.services.load_league_summary_stats", return_value=None),

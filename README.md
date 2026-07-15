@@ -152,11 +152,17 @@ beyond a single Render instance.
 
 `DashboardServices` caches countries and leagues for 12 hours and
 ratings for 6 hours (in-memory, per process — also reset on redeploy).
-Every cache miss tries Postgres first and falls back to a live scrape of
-soccer-rating.com if the query fails or returns nothing; a failed lookup
-(e.g. a broken `DATABASE_URL`) logs a `WARNING` from the
-`soccer_ratings.services` logger with the exception so it shows up in
-Render's logs instead of failing silently.
+Countries and ratings each try Postgres first and fall back to a live
+scrape of soccer-rating.com if the query fails or returns nothing. The
+**league list is the other way around** — always live-scraped first, DB
+only as a fallback if the scrape itself fails — so a country with only
+one or two leagues imported still shows every league that actually
+exists on the source site, not just the imported subset; the League
+dropdown (on the dashboard and on `/admin`) is meant for discovering and
+picking what to import next, not a view of import state. A failed
+lookup (e.g. a broken `DATABASE_URL`, or soccer-rating.com erroring)
+logs a `WARNING` from the `soccer_ratings.services` logger with the
+exception so it shows up in Render's logs instead of failing silently.
 
 After the first deploy, initialize and import data from a Render shell or another trusted environment:
 
