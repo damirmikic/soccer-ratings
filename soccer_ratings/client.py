@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from .matchhistory import build_form_guide, build_head_to_head
 from .odds import (
     apply_shin_margin,
     build_dnb_odds,
@@ -361,6 +362,9 @@ def compare_teams_from_ratings(
     dnb_market = apply_shin_margin(dnb_probabilities, margin_percent)
     total_goals_market = apply_shin_margin(total_goals_probabilities, margin_percent)
     btts_market = apply_shin_margin(btts_probabilities, margin_percent)
+    head_to_head = build_head_to_head(historical_matches or [], home_team, away_team)
+    home_form = build_form_guide(historical_matches or [], home_team)
+    away_form = build_form_guide(historical_matches or [], away_team)
 
     return {
         "home_team": home_entry,
@@ -381,6 +385,9 @@ def compare_teams_from_ratings(
         "btts_probabilities": btts_probabilities,
         "btts_odds": btts_odds,
         "historical_context": historical_context,
+        "head_to_head": head_to_head,
+        "home_form": home_form,
+        "away_form": away_form,
         "market_probabilities": market["probabilities"],
         "market_odds": market["odds"],
         "market_dnb_probabilities": dnb_market["probabilities"],

@@ -153,6 +153,39 @@ class TeamComparisonTests(unittest.TestCase):
         self.assertIsNotNone(comparison["team_goal_context"])
         self.assertIn("total_goals_probabilities", comparison)
         self.assertIn("btts_probabilities", comparison)
+        # No Alpha-vs-Beta meeting in the sample data, but each side has form.
+        self.assertIsNone(comparison["head_to_head"])
+        self.assertIsNotNone(comparison["home_form"])
+        self.assertIsNotNone(comparison["away_form"])
+
+    def test_compare_teams_surfaces_head_to_head_record(self) -> None:
+        home_rows = [{"team": "Alpha", "rating": 2100.0, "rank": 1}]
+        away_rows = [{"team": "Beta", "rating": 2000.0, "rank": 2}]
+        historical_matches = [
+            {
+                "date": "01.01.23",
+                "home_team": "Alpha",
+                "away_team": "Beta",
+                "home_odds": 1.8,
+                "draw_odds": 3.5,
+                "away_odds": 4.2,
+                "home_rating": 2095.0,
+                "away_rating": 1995.0,
+                "home_goals": 2,
+                "away_goals": 0,
+            },
+        ]
+
+        comparison = compare_teams_from_ratings(
+            home_rows,
+            away_rows,
+            home_team="Alpha",
+            away_team="Beta",
+            historical_matches=historical_matches,
+        )
+
+        self.assertEqual(comparison["head_to_head"]["wins"], 1)
+        self.assertEqual(comparison["head_to_head"]["sample_size"], 1)
 
 
 class MatchDeduplicationTests(unittest.TestCase):

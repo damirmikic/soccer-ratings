@@ -1,5 +1,8 @@
 {% set hc = d.historical_context %}
 {% set tgc = d.team_goal_context %}
+{% set h2h = d.head_to_head %}
+{% set home_form = d.home_form %}
+{% set away_form = d.away_form %}
 
 <div class="match-card">
   <div class="match-card-meta">
@@ -90,4 +93,62 @@
     </div>
   </div>
   {% endif %}
+
+  {% if home_form or away_form %}
+  <div class="form-guide">
+    {% for form, team_name in [(home_form, d.home_team.team), (away_form, d.away_team.team)] %}
+    <div class="form-guide-team">
+      <strong>{{ team_name }}</strong>
+      {% if form %}
+      <div class="form-strip">
+        {% for m in form.matches | reverse %}
+        <span class="form-badge form-badge-{{ m.result | lower }}" title="{{ m.date }} vs {{ m.opponent }} ({{ m.venue }}) {{ m.goals_for }}-{{ m.goals_against }}">{{ m.result }}</span>
+        {% endfor %}
+      </div>
+      <small>{{ form.wins }}W-{{ form.draws }}D-{{ form.losses }}L over last {{ form.sample_size }} &middot; {{ "%.2f"|format(form.avg_goals_for) }} scored / {{ "%.2f"|format(form.avg_goals_against) }} conceded</small>
+      {% else %}
+      <small>No recent completed matches on record.</small>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="head-to-head">
+    <div class="head-to-head-header">
+      <h3>Head-to-Head</h3>
+      {% if h2h %}
+      <span class="market-meta">
+        {{ h2h.wins }}W-{{ h2h.draws }}D-{{ h2h.losses }}L for {{ d.home_team.team }} over last {{ h2h.sample_size }} meeting{{ "s" if h2h.sample_size != 1 else "" }}
+        &middot; avg {{ "%.2f"|format(h2h.avg_goals_for) }}-{{ "%.2f"|format(h2h.avg_goals_against) }} goals
+      </span>
+      {% endif %}
+    </div>
+    {% if h2h %}
+    <div class="table-wrap" style="max-height:260px;">
+      <table>
+        <thead>
+          <tr><th>Date</th><th>Match</th><th>Score</th><th>1 Then</th><th>X Then</th><th>2 Then</th></tr>
+        </thead>
+        <tbody>
+          {% for m in h2h.matches %}
+          <tr>
+            <td>{{ m.date }}</td>
+            <td>{{ m.home_team }} vs {{ m.away_team }}</td>
+            <td>{{ m.result or "-" }}</td>
+            <td>{{ "%.2f"|format(m.home_odds) if m.home_odds is not none else "-" }}</td>
+            <td>{{ "%.2f"|format(m.draw_odds) if m.draw_odds is not none else "-" }}</td>
+            <td>{{ "%.2f"|format(m.away_odds) if m.away_odds is not none else "-" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="market-meta" style="margin-top:8px;">
+      Current market: 1 {{ "%.2f"|format(d.market_odds.home) }} &middot; X {{ "%.2f"|format(d.market_odds.draw) }} &middot; 2 {{ "%.2f"|format(d.market_odds.away) }}
+    </div>
+    {% else %}
+    <div class="market-meta">No previous meetings found in the stored history for these two teams.</div>
+    {% endif %}
+  </div>
 </div>
