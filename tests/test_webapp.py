@@ -219,6 +219,36 @@ class CountryImportBackgroundJobTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Import job not found", response.text)
 
+    def test_import_job_status_shows_spinner_and_progress_bar_while_running(self) -> None:
+        app = create_dashboard_app()
+        svc = StubServices()
+        app.state.services = svc
+        client = TestClient(app)
+
+        job_id = svc._jobs.create(kind="country_import", label="/England/")
+        svc._jobs._update(job_id, current=1, total=3, message="Championship")
+
+        response = client.get(f"/fragments/import-job-status?job_id={job_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('class="spinner"', response.text)
+        self.assertIn("Importing&hellip; 1/3 leagues", response.text)
+        self.assertIn('class="progress-fill" style="width: 33.3%;"', response.text)
+        # Still polling — the fragment must keep re-fetching itself.
+        self.assertIn(f"/fragments/import-job-status?job_id={job_id}", response.text)
+
+    def test_import_job_status_shows_indeterminate_bar_before_total_is_known(self) -> None:
+        app = create_dashboard_app()
+        svc = StubServices()
+        app.state.services = svc
+        client = TestClient(app)
+
+        job_id = svc._jobs.create(kind="country_import", label="/England/")
+
+        response = client.get(f"/fragments/import-job-status?job_id={job_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Starting import&hellip;", response.text)
+        self.assertIn("is-indeterminate", response.text)
+
     @mock.patch.dict(os.environ, {"ADMIN_TOKEN": "secret"})
     def test_api_country_import_returns_202_with_job_payload(self) -> None:
         client = make_client()
@@ -274,6 +304,21 @@ class CalibrationSweepBackgroundJobTests(unittest.TestCase):
         response = client.get("/fragments/calibration-sweep-status?job_id=does-not-exist")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Calibration sweep job not found", response.text)
+
+    def test_calibration_sweep_status_shows_spinner_and_progress_bar_while_running(self) -> None:
+        app = create_dashboard_app()
+        svc = StubServices()
+        app.state.services = svc
+        client = TestClient(app)
+
+        job_id = svc._jobs.create(kind="calibration_sweep", label="all imported leagues")
+        svc._jobs._update(job_id, current=2, total=4, message="La Liga")
+
+        response = client.get(f"/fragments/calibration-sweep-status?job_id={job_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('class="spinner"', response.text)
+        self.assertIn("Sweeping&hellip; 2/4 leagues", response.text)
+        self.assertIn('class="progress-fill" style="width: 50.0%;"', response.text)
 
     @mock.patch.dict(os.environ, {"ADMIN_TOKEN": "secret"})
     def test_api_calibration_sweep_returns_202_with_job_payload(self) -> None:
