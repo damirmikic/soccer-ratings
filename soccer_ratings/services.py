@@ -70,22 +70,34 @@ class DashboardServices:
         return ""
 
     def get_leagues(self, country_url: str) -> list[dict]:
+        """Live-scraped list, so a country with only a few leagues imported
+        still shows every league that actually exists on the source site
+        (not just the imported subset) — DB is only a fallback if the live
+        scrape itself fails.
+        """
         cached = self._leagues_cache.get(country_url)
         if cached is not None:
             return cached
 
-        leagues: list[dict] = []
         try:
-            leagues = load_country_leagues_from_db(country_url)
+            leagues = fetch_country_leagues(country_url)
         except Exception as exc:
             logger.warning(
-                "DB lookup failed for leagues in %s (%s: %s); falling back to live scrape",
+                "Live scrape failed for leagues in %s (%s: %s); falling back to DB",
                 country_url,
                 type(exc).__name__,
                 exc,
             )
-        if not leagues:
-            leagues = fetch_country_leagues(country_url)
+            leagues = []
+            try:
+                leagues = load_country_leagues_from_db(country_url)
+            except Exception as db_exc:
+                logger.warning(
+                    "DB lookup also failed for leagues in %s (%s: %s)",
+                    country_url,
+                    type(db_exc).__name__,
+                    db_exc,
+                )
         self._leagues_cache.set(country_url, leagues)
         return leagues
 

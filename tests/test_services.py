@@ -92,37 +92,78 @@ class GetContinentForCountryTests(unittest.TestCase):
 
 
 class GetLeaguesFallbackTests(unittest.TestCase):
+    """get_leagues is live-first: a country with only a handful of leagues
+    imported must still show every league that exists on the source site,
+    not just the imported subset. DB is only a fallback if the live scrape
+    itself fails."""
+
     @mock.patch("soccer_ratings.services.fetch_country_leagues")
     @mock.patch("soccer_ratings.services.load_country_leagues_from_db")
-    def test_logs_warning_and_falls_back_to_live_scrape_when_db_raises(
+    def test_uses_live_scrape_even_when_country_is_partially_imported(
         self, mock_load_db, mock_fetch_live
     ) -> None:
-        mock_load_db.side_effect = RuntimeError("DATABASE_URL is not set")
-        mock_fetch_live.return_value = [{"league": "Premier League", "league_path": "/x/"}]
+        # DB only knows about one imported league...
+        mock_load_db.return_value = [{"league": "Premier League", "league_path": "/England/Premier-League/"}]
+        # ...but the source site actually lists several.
+        mock_fetch_live.return_value = [
+            {"league": "Premier League", "league_path": "/England/Premier-League/"},
+            {"league": "Championship", "league_path": "/England/Championship/"},
+            {"league": "League One", "league_path": "/England/League-One/"},
+        ]
+
+        svc = DashboardServices()
+        result = svc.get_leagues("/England/")
+
+        self.assertEqual(result, mock_fetch_live.return_value)
+        mock_load_db.assert_not_called()
+
+    @mock.patch("soccer_ratings.services.fetch_country_leagues")
+    @mock.patch("soccer_ratings.services.load_country_leagues_from_db")
+    def test_logs_warning_and_falls_back_to_db_when_live_scrape_raises(
+        self, mock_load_db, mock_fetch_live
+    ) -> None:
+        mock_fetch_live.side_effect = RuntimeError("HTTP Error 500: Internal Server Error")
+        mock_load_db.return_value = [{"league": "Premier League", "league_path": "/x/"}]
 
         svc = DashboardServices()
         with self.assertLogs("soccer_ratings.services", level="WARNING") as logs:
             result = svc.get_leagues("/England/")
 
-        self.assertEqual(result, mock_fetch_live.return_value)
-        self.assertTrue(any("DATABASE_URL is not set" in message for message in logs.output))
+        self.assertEqual(result, mock_load_db.return_value)
+        self.assertTrue(any("HTTP Error 500" in message for message in logs.output))
 
     @mock.patch("soccer_ratings.services.fetch_country_leagues")
     @mock.patch("soccer_ratings.services.load_country_leagues_from_db")
-    def test_does_not_hit_db_again_within_ttl(self, mock_load_db, mock_fetch_live) -> None:
-        mock_load_db.return_value = [{"league": "Premier League", "league_path": "/x/"}]
+    def test_returns_empty_list_and_logs_both_failures_when_live_and_db_fail(
+        self, mock_load_db, mock_fetch_live
+    ) -> None:
+        mock_fetch_live.side_effect = RuntimeError("scrape failed")
+        mock_load_db.side_effect = RuntimeError("db down")
+
+        svc = DashboardServices()
+        with self.assertLogs("soccer_ratings.services", level="WARNING") as logs:
+            result = svc.get_leagues("/England/")
+
+        self.assertEqual(result, [])
+        self.assertTrue(any("scrape failed" in message for message in logs.output))
+        self.assertTrue(any("db down" in message for message in logs.output))
+
+    @mock.patch("soccer_ratings.services.fetch_country_leagues")
+    @mock.patch("soccer_ratings.services.load_country_leagues_from_db")
+    def test_does_not_hit_live_again_within_ttl(self, mock_load_db, mock_fetch_live) -> None:
+        mock_fetch_live.return_value = [{"league": "Premier League", "league_path": "/x/"}]
 
         svc = DashboardServices()
         svc.get_leagues("/England/")
         svc.get_leagues("/England/")
 
-        self.assertEqual(mock_load_db.call_count, 1)
-        mock_fetch_live.assert_not_called()
+        self.assertEqual(mock_fetch_live.call_count, 1)
+        mock_load_db.assert_not_called()
 
     @mock.patch("soccer_ratings.services.fetch_country_leagues")
     @mock.patch("soccer_ratings.services.load_country_leagues_from_db")
-    def test_refreshes_from_db_after_ttl_expires(self, mock_load_db, mock_fetch_live) -> None:
-        mock_load_db.return_value = [{"league": "Premier League", "league_path": "/x/"}]
+    def test_refreshes_from_live_after_ttl_expires(self, mock_load_db, mock_fetch_live) -> None:
+        mock_fetch_live.return_value = [{"league": "Premier League", "league_path": "/x/"}]
 
         svc = DashboardServices()
         svc.get_leagues("/England/")
@@ -130,7 +171,7 @@ class GetLeaguesFallbackTests(unittest.TestCase):
         with mock.patch("soccer_ratings.cache.time.monotonic", return_value=999_999_999.0):
             svc.get_leagues("/England/")
 
-        self.assertEqual(mock_load_db.call_count, 2)
+        self.assertEqual(mock_fetch_live.call_count, 2)
 
 
 class GetRatingsFallbackTests(unittest.TestCase):
