@@ -915,6 +915,21 @@ td:last-child {
   margin-left: 8px;
 }
 
+.is-positive {
+  color: #0a7c42;
+}
+
+.is-negative {
+  color: var(--accent);
+}
+
+td.is-value-bet {
+  background: rgba(10, 124, 66, 0.12);
+  color: #0a7c42;
+  font-weight: 700;
+  border-radius: 6px;
+}
+
 
 @media (max-width: 920px) {
   .hero, .controls, .panes, .metric-strip, .status-bar, .matchup-body, .matchup-controls, .matchup-cards, .multi-toolbar, .multi-row, .multi-summary, .history-cache, .league-stats, .match-card-goal-profiles, .controls {

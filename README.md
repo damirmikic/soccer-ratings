@@ -379,6 +379,43 @@ If no historical Postgres data is available for that league yet, the app falls b
 
 When you enter a margin in the dashboard, the displayed odds are adjusted with the Shin method.
 
+## Backtesting & market vs. model comparison
+
+Every completed match already stored in Postgres for a league (`matches`,
+populated by `import-league-history`/`import-country-history`) carries
+both the ratings and the bookmaker's closing 1X2 odds as they were at the
+time the match was played. The `Backtest` tab on a league page (and
+`soccer_ratings/backtest.py`) replays that history:
+
+- For each match, the plain ratings-only model (`calculate_match_probabilities`,
+  no historical calibration) is compared against the market's de-vigged
+  implied probabilities from the stored odds — deliberately skipping the
+  history-calibrated model used elsewhere in the dashboard, since
+  calibrating on the full league history and then backtesting against
+  that same history would leak future results into each prediction.
+- **Model accuracy**: average Brier score, pick accuracy (how often the
+  model's most-likely outcome was correct), and a calibration table
+  ("when the model said ~40%, how often did that actually happen?").
+- **Market vs. model / value bets**: for each outcome where the model's
+  probability exceeds the market's by more than a configurable edge
+  threshold, a flat-stake bet is simulated against the actual result,
+  rolled up into total staked/profit, hit rate, and ROI.
+
+Adjust the edge threshold and stake inline on the tab (HTMX re-runs the
+backtest without a full page reload) or via the API/CLI:
+
+```bash
+python3 app.py backtest --league-url /England/UK1/ --edge-threshold 5 --stake 1
+```
+
+```
+GET /api/backtest?league_url=/England/UK1/&edge_threshold=5&stake=1
+```
+
+Leagues with no imported history yet show an empty state — run
+`import-league-history`/`import-country-history` (or the `/admin` import
+buttons) first.
+
 ## Tests
 
 ```bash

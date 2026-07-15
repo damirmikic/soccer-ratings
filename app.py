@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from soccer_ratings.env import load_env_file
+from soccer_ratings.backtest import run_league_backtest
 from soccer_ratings.client import (
     DEFAULT_URL,
     build_and_cache_league_history,
@@ -25,6 +26,7 @@ from soccer_ratings.db import (
     import_league_history,
     import_league_ratings,
     init_db,
+    load_league_history_matches,
     refresh_known_history,
 )
 from soccer_ratings.dashboard import DashboardBindError, run_dashboard
@@ -183,6 +185,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional Postgres connection URL. Defaults to DIRECT_DATABASE_URL, then DATABASE_URL.",
     )
 
+    backtest_parser = subparsers.add_parser(
+        "backtest",
+        help="Replay stored league history through the model and grade it against the market.",
+    )
+    backtest_parser.add_argument(
+        "--league-url",
+        required=True,
+        help="League path or URL, for example /England/UK1/.",
+    )
+    backtest_parser.add_argument(
+        "--edge-threshold",
+        type=float,
+        default=5.0,
+        help="Minimum model-vs-market edge (percentage points) to count as a value bet.",
+    )
+    backtest_parser.add_argument(
+        "--stake",
+        type=float,
+        default=1.0,
+        help="Flat stake per value bet, in units.",
+    )
+    backtest_parser.add_argument(
+        "--database-url",
+        help="Optional Postgres connection URL. Defaults to DATABASE_URL.",
+    )
+
     crawl_country_parser = subparsers.add_parser(
         "crawl-country",
         help="Fetch all league home/away ratings for a country.",
@@ -263,6 +291,13 @@ def main() -> int:
         payload = import_all_history(args.database_url)
     elif args.command == "refresh-known-history":
         payload = refresh_known_history(args.database_url)
+    elif args.command == "backtest":
+        matches = load_league_history_matches(args.league_url, args.database_url)
+        payload = run_league_backtest(
+            matches,
+            edge_threshold_percent=args.edge_threshold,
+            stake=args.stake,
+        )
     elif args.command == "crawl-country":
         payload = fetch_country_league_ratings(
             args.country_url,

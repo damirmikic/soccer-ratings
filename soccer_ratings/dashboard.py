@@ -58,6 +58,7 @@ def create_dashboard_app():
     from fastapi.templating import Jinja2Templates
 
     from .routes.admin import router as admin_router
+    from .routes.backtest import router as backtest_router
     from .routes.compare import router as compare_router
     from .routes.countries import router as countries_router
     from .routes.fragments import router as fragments_router
@@ -96,6 +97,7 @@ def create_dashboard_app():
 
     app.include_router(countries_router)
     app.include_router(compare_router)
+    app.include_router(backtest_router)
     app.include_router(history_router)
     app.include_router(fragments_router)
     app.include_router(admin_router)
@@ -149,6 +151,7 @@ def create_dashboard_app():
                     "away": ratings.get("away", []),
                     "league_stats": svc.get_league_stats(selected_league),
                     "history_status": svc.get_history_status(selected_league),
+                    "backtest": svc.get_backtest(selected_league),
                     "ratings_fetched_at": ratings.get("fetched_at"),
                     "ratings_source": ratings.get("source", "live"),
                 }

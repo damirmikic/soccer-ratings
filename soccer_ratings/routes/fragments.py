@@ -87,6 +87,7 @@ def league_content(
             "away": away,
             "league_stats": svc.get_league_stats(league_url),
             "history_status": svc.get_history_status(league_url),
+            "backtest": svc.get_backtest(league_url),
             "ratings_fetched_at": ratings.get("fetched_at"),
             "ratings_source": ratings.get("source", "live"),
         },
@@ -134,6 +135,29 @@ def compare(
         margin=margin,
     )
     return response
+
+
+@router.get("/backtest", response_class=HTMLResponse)
+def backtest(
+    request: Request,
+    league_url: str = Query(...),
+    edge_threshold: float = Query(5.0),
+    stake: float = Query(1.0),
+) -> HTMLResponse:
+    svc = _svc(request)
+    try:
+        data = svc.get_backtest(
+            league_url=league_url,
+            edge_threshold_percent=edge_threshold,
+            stake=stake,
+        )
+    except Exception:
+        return HTMLResponse('<p class="market-meta">Could not run the backtest — check league selection.</p>')
+    return _templates.TemplateResponse(
+        request,
+        "fragments/backtest_result.html",
+        {"b": data},
+    )
 
 
 @router.post("/history-build", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
