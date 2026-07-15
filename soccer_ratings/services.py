@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from .backtest import run_league_backtest
 from .cache import TTLCache
 from .client import (
     build_and_cache_league_history,
@@ -206,6 +207,46 @@ class DashboardServices:
         )
         comparison["history_source"] = history_source
         return comparison
+
+    def get_backtest(
+        self,
+        league_url: str,
+        edge_threshold_percent: float = 5.0,
+        stake: float = 1.0,
+    ) -> dict:
+        historical_matches: list[dict] = []
+        history_source = "none"
+        try:
+            historical_matches = load_league_history_matches(league_url)
+            if historical_matches:
+                history_source = "postgres"
+        except Exception as exc:
+            logger.warning(
+                "DB lookup failed for backtest history in %s (%s: %s); falling back to cached history file",
+                league_url,
+                type(exc).__name__,
+                exc,
+            )
+            historical_matches = []
+
+        if not historical_matches:
+            cached = load_cached_league_history(league_url)
+            if cached is not None:
+                historical_matches = filter_matches_for_league(
+                    cached.get("matches", []),
+                    league_url,
+                )
+                if historical_matches:
+                    history_source = "cache"
+
+        result = run_league_backtest(
+            historical_matches,
+            edge_threshold_percent=edge_threshold_percent,
+            stake=stake,
+        )
+        result["league_url"] = league_url
+        result["history_source"] = history_source
+        return result
 
     def get_history_status(self, league_url: str) -> dict:
         cached = load_cached_league_history(league_url)

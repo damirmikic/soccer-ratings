@@ -71,6 +71,7 @@ class OpenGraphTagsTests(unittest.TestCase):
             mock.patch("soccer_ratings.services.load_league_home_away_ratings_from_db", return_value=ratings),
             mock.patch("soccer_ratings.services.load_league_summary_stats", return_value=None),
             mock.patch("soccer_ratings.services.load_cached_league_history", return_value=None),
+            mock.patch("soccer_ratings.services.load_league_history_matches", return_value=[]),
         )
         for patcher in patches:
             patcher.start()
