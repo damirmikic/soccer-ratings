@@ -1,17 +1,29 @@
 {% if job is none %}
 <span class="history-cache-meta">Import job not found (server may have restarted).</span>
 {% elif job.status == "running" %}
-<span class="history-cache-meta"
+<div class="job-progress"
   hx-get="/fragments/import-job-status?job_id={{ job.id }}"
   hx-trigger="load delay:1500ms"
   hx-target="this"
   hx-swap="outerHTML">
-  {% if job.total %}
-  Importing&hellip; {{ job.current }}/{{ job.total }} leagues &middot; {{ job.message }}
-  {% else %}
-  Starting import&hellip;
-  {% endif %}
-</span>
+  <div class="job-progress-header">
+    <span class="spinner" aria-hidden="true"></span>
+    <span class="history-cache-meta">
+      {% if job.total %}
+      Importing&hellip; {{ job.current }}/{{ job.total }} leagues &middot; {{ job.message }}
+      {% else %}
+      Starting import&hellip;
+      {% endif %}
+    </span>
+  </div>
+  <div class="progress-track">
+    {% if job.total %}
+    <div class="progress-fill" style="width: {{ (job.current / job.total * 100) | round(1) }}%;"></div>
+    {% else %}
+    <div class="progress-fill is-indeterminate"></div>
+    {% endif %}
+  </div>
+</div>
 {% elif job.status == "done" %}
 {% set result = job.result %}
 <span class="history-cache-meta">
