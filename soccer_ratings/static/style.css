@@ -930,9 +930,94 @@ td.is-value-bet {
   border-radius: 6px;
 }
 
+.form-guide {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--card-line);
+}
+
+.form-guide-team strong {
+  display: block;
+  margin-bottom: 6px;
+  font-family: "Barlow", sans-serif;
+  font-size: 14px;
+  color: var(--card-ink);
+}
+
+.form-strip {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.form-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-family: "Barlow", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+}
+
+.form-badge-w {
+  background: #0a7c42;
+}
+
+.form-badge-d {
+  background: #64748b;
+}
+
+.form-badge-l {
+  background: #e11d2e;
+}
+
+.form-guide-team small {
+  color: var(--card-muted);
+  font-size: 12px;
+}
+
+.head-to-head {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--card-line);
+}
+
+.head-to-head-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.head-to-head-header h3 {
+  font-family: "Barlow", sans-serif;
+  font-size: 15px;
+  color: var(--card-ink);
+  margin: 0;
+}
+
+.head-to-head .market-meta {
+  color: var(--card-muted);
+}
+
+.head-to-head .table-wrap {
+  background: white;
+  border-radius: 12px;
+  color: var(--ink);
+}
+
 
 @media (max-width: 920px) {
-  .hero, .controls, .panes, .metric-strip, .status-bar, .matchup-body, .matchup-controls, .matchup-cards, .multi-toolbar, .multi-row, .multi-summary, .history-cache, .league-stats, .match-card-goal-profiles, .controls {
+  .hero, .controls, .panes, .metric-strip, .status-bar, .matchup-body, .matchup-controls, .matchup-cards, .multi-toolbar, .multi-row, .multi-summary, .history-cache, .league-stats, .match-card-goal-profiles, .form-guide, .controls {
     grid-template-columns: 1fr;
   }
 

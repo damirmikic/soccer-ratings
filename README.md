@@ -379,6 +379,17 @@ If no historical Postgres data is available for that league yet, the app falls b
 
 When you enter a margin in the dashboard, the displayed odds are adjusted with the Shin method.
 
+Selecting a matchup on the Single Match tab also surfaces two panels
+below the odds, both built from `soccer_ratings/matchhistory.py` and the
+same `historical_matches` already loaded for that league — no extra
+query or scrape:
+
+- **Form guide**: each team's last 5 completed matches (any opponent),
+  shown as a W/D/L strip with goals for/against and a record summary.
+- **Head-to-head**: up to the last 10 previous meetings between the two
+  selected teams (either venue), with the score and the bookmaker odds
+  recorded at the time, alongside the current market odds for comparison.
+
 ## Backtesting & market vs. model comparison
 
 Every completed match already stored in Postgres for a league (`matches`,
