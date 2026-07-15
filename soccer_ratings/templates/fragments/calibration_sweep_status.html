@@ -27,10 +27,19 @@
 {% elif job.status == "done" %}
 {% set result = job.result %}
 {% set summary = result.summary %}
-<div class="history-cache-meta">
-  Swept {{ result.leagues_evaluated }} of {{ result.leagues_considered }} leagues
-  ({{ result.leagues_skipped }} skipped &mdash; too few matches).
+<div class="history-cache-meta" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+  <span>
+    Swept {{ result.leagues_evaluated }} of {{ result.leagues_considered }} leagues
+    ({{ result.leagues_skipped }} skipped &mdash; too few matches).
+  </span>
+  <span>
+    <button type="button" id="calibration-sweep-copy">Copy Results</button>
+    <span id="calibration-sweep-copy-feedback" class="market-meta"></span>
+  </span>
 </div>
+<script type="application/json" id="calibration-sweep-data">
+  {{ result | tojson }}
+</script>
 
 {% if summary %}
 <div class="league-stats" style="grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 10px 0;">
