@@ -272,7 +272,14 @@ def summarize_team_goal_context(
 def calibrate_probabilities_with_history(
     probabilities: dict[str, float],
     historical_context: dict[str, float] | None,
+    weight_scale: float = 1.0,
 ) -> dict[str, float]:
+    """weight_scale uniformly scales how much the draw rate and win-share
+    blend trust league history versus the ratings-only model. 1.0
+    reproduces the original hand-picked weights; soccer_ratings.tuning
+    sweeps this value against real history to check whether trusting it
+    more or less actually improves accuracy.
+    """
     if not historical_context:
         return {key: round(value, 4) for key, value in probabilities.items()}
 
@@ -280,8 +287,8 @@ def calibrate_probabilities_with_history(
     if effective_sample_size <= 0:
         return {key: round(value, 4) for key, value in probabilities.items()}
 
-    draw_weight = min(0.4, effective_sample_size / 24.0 * 0.4)
-    win_share_weight = min(0.28, effective_sample_size / 24.0 * 0.28)
+    draw_weight = min(1.0, max(0.0, min(0.4, effective_sample_size / 24.0 * 0.4) * weight_scale))
+    win_share_weight = min(1.0, max(0.0, min(0.28, effective_sample_size / 24.0 * 0.28) * weight_scale))
 
     draw_probability = _blend(
         probabilities["draw"],

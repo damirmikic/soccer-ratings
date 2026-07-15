@@ -427,6 +427,36 @@ Leagues with no imported history yet show an empty state — run
 `import-league-history`/`import-country-history` (or the `/admin` import
 buttons) first.
 
+## Tuning the history-calibration weight
+
+`calibrate_probabilities_with_history` in `soccer_ratings/odds.py` blends
+the ratings-only draw/win-share split with a league's actual history, but
+how much it trusts that history (draw-rate weight capped at 0.4,
+win-share weight capped at 0.28, both ramping in over ~24 effective
+samples) was originally hand-picked, not fitted from data.
+
+`soccer_ratings/tuning.py` lets you check that empirically. It walk-forward
+backtests a league — predicting each match using *only* the matches
+strictly before it, so nothing leaks from the future — at several
+candidate `weight_scale` values (a multiplier on those weights: `0.0` is
+the ratings-only model with history ignored entirely, `1.0` is the
+current default, `2.0` trusts history twice as much) and reports which
+minimizes average Brier score:
+
+```bash
+python3 app.py tune-calibration --league-url /England/UK1/
+python3 app.py tune-calibration --league-url /England/UK1/ --weight-scales 0 0.5 1 1.5 2 --min-matches 50
+```
+
+Leagues below `--min-matches` (default 30) completed matches are skipped
+outright — there's not enough signal to distinguish a genuinely better
+weight from noise. This is an offline research tool: it reports what
+would have minimized Brier score, it doesn't change the live app's
+behavior — if a sweep says a different `weight_scale` consistently wins
+across leagues, that's a signal to update the default in
+`calibrate_probabilities_with_history`, not something applied
+automatically.
+
 ## Tests
 
 ```bash
