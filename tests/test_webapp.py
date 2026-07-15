@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import unittest
@@ -298,6 +299,14 @@ class CalibrationSweepBackgroundJobTests(unittest.TestCase):
         self.assertIn("Swept 1 of 2 leagues", status_response.text)
         self.assertIn("Premier League", status_response.text)
         self.assertIn("Tercera", status_response.text)
+        # "Copy Results" button and its embedded JSON payload for app.js to read.
+        self.assertIn('id="calibration-sweep-copy"', status_response.text)
+        self.assertIn('id="calibration-sweep-data"', status_response.text)
+        payload = json.loads(
+            status_response.text.split('id="calibration-sweep-data">', 1)[1].split("</script>", 1)[0]
+        )
+        self.assertEqual(payload["leagues_evaluated"], 1)
+        self.assertEqual(payload["leagues"][0]["league"], "Premier League")
 
     def test_calibration_sweep_status_handles_unknown_job_id(self) -> None:
         client = make_client()

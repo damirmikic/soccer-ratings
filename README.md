@@ -473,6 +473,11 @@ a large database. The result summarizes:
   lower is a signal worth acting on
 - leagues skipped for having too few matches
 
+Once it's done, a **"Copy Results"** button copies a plain-text/tab-separated
+report to the clipboard (via `buildCalibrationSweepSummaryText` in
+`soccer_ratings/static/app.js`) — the per-league table pastes cleanly into a
+spreadsheet, and the whole thing reads fine pasted into chat or email too.
+
 Also available headlessly:
 
 ```bash

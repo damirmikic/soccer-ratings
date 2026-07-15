@@ -381,3 +381,95 @@ document.addEventListener("input", (e) => {
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// Calibration sweep results: "Copy Results" button
+// Reads the job result JSON from the <script id="calibration-sweep-data">
+// tag injected by calibration_sweep_status.html and copies a plain-text /
+// tab-separated report to the clipboard, so it pastes cleanly into chat,
+// email, or a spreadsheet.
+// ---------------------------------------------------------------------------
+
+function fmtBrierValue(value) {
+  return typeof value === "number" ? value.toFixed(4) : "-";
+}
+
+// Pure and DOM-free so it can be exercised directly in a test runner
+// without needing a browser: the job's result JSON in, report text out.
+function buildCalibrationSweepSummaryText(result) {
+  const lines = ["Calibration Sweep Results"];
+  lines.push(
+    `Evaluated: ${result.leagues_evaluated} of ${result.leagues_considered} leagues` +
+      (result.leagues_skipped ? ` (${result.leagues_skipped} skipped)` : "")
+  );
+
+  const summary = result.summary;
+  if (summary) {
+    lines.push(`Median Best Weight Scale: ${summary.median_best_weight_scale}`);
+    lines.push(
+      `Avg Brier Improvement vs Default: ${
+        summary.avg_brier_improvement_vs_default != null
+          ? fmtBrierValue(summary.avg_brier_improvement_vs_default)
+          : "-"
+      }`
+    );
+  }
+  lines.push("");
+
+  const leagues = result.leagues || [];
+  if (leagues.length) {
+    lines.push(["Country", "League", "Matches", "Best Scale", "Best Brier", "Default (1.0) Brier"].join("\t"));
+    for (const row of leagues) {
+      lines.push(
+        [
+          row.country || "-",
+          row.league || row.league_path,
+          row.matches_available,
+          row.best.weight_scale,
+          fmtBrierValue(row.best.avg_brier),
+          row.default_avg_brier != null ? fmtBrierValue(row.default_avg_brier) : "-",
+        ].join("\t")
+      );
+    }
+  } else {
+    lines.push("No league had enough imported history to evaluate.");
+  }
+
+  const skipped = result.skipped_leagues || [];
+  if (skipped.length) {
+    lines.push("");
+    const minMatches = skipped[0].min_matches_required;
+    const names = skipped.map((row) => row.league || row.league_path).join(", ");
+    lines.push(`Skipped (fewer than ${minMatches} matches): ${names}`);
+  }
+
+  return lines.join("\n");
+}
+
+document.addEventListener("click", (e) => {
+  if (!e.target || e.target.id !== "calibration-sweep-copy") return;
+  const dataEl = document.getElementById("calibration-sweep-data");
+  const feedback = document.getElementById("calibration-sweep-copy-feedback");
+  if (!dataEl) return;
+
+  const showFeedback = (text) => {
+    if (!feedback) return;
+    feedback.textContent = text;
+    setTimeout(() => {
+      feedback.textContent = "";
+    }, 2000);
+  };
+
+  let text;
+  try {
+    text = buildCalibrationSweepSummaryText(JSON.parse(dataEl.textContent));
+  } catch {
+    showFeedback("Copy failed.");
+    return;
+  }
+
+  navigator.clipboard.writeText(text).then(
+    () => showFeedback("Copied!"),
+    () => showFeedback("Copy failed — select and copy manually.")
+  );
+});
