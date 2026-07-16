@@ -102,6 +102,8 @@ def create_dashboard_app():
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     templates.env.filters["relative_time"] = format_relative_time
+    templates.env.globals["build_share_url"] = lambda **kwargs: build_share_url(services=app.state.services, **kwargs)
+
 
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
@@ -137,6 +139,12 @@ def create_dashboard_app():
         grouped: dict[str, list] = {}
         for c in visible_countries:
             grouped.setdefault(c.get("continent") or "Other", []).append(c)
+
+        selected_country_name = ""
+        if selected_country:
+            match_country = next((c for c in countries if c.get("country_path") == selected_country), None)
+            if match_country:
+                selected_country_name = match_country.get("country") or ""
 
         leagues: list[dict] = []
         selected_league_name = ""
@@ -175,12 +183,17 @@ def create_dashboard_app():
                 league_context = {}
                 comparison = None
 
+        import os
+        site_url = os.getenv("SITE_URL") or str(request.base_url)
+        canonical_url = f"{site_url.rstrip('/')}{request.url.path}"
+
         context = {
             "continents": continents,
             "grouped": grouped,
             "total_countries": len(countries),
             "selected_continent": selected_continent,
             "selected_country": selected_country,
+            "selected_country_name": selected_country_name,
             "selected_league": selected_league,
             "selected_league_name": selected_league_name,
             "selected_home": selected_home,
@@ -189,8 +202,10 @@ def create_dashboard_app():
             "leagues": leagues,
             "country_url": selected_country,
             "d": comparison,
+            "canonical_url": canonical_url,
         }
         context.update(league_context)
+
         return templates.TemplateResponse(request, "index.html", context)
 
     @app.get("/", response_class=HTMLResponse)

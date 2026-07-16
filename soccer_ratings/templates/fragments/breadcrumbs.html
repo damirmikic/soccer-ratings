@@ -1,0 +1,22 @@
+<nav aria-label="breadcrumb" class="breadcrumbs">
+  <ol>
+    <li>
+      <a href="/">Home</a>
+    </li>
+    {% if selected_continent %}
+    <li>
+      <a href="{{ build_share_url(continent=selected_continent) }}">{{ selected_continent }}</a>
+    </li>
+    {% endif %}
+    {% if selected_country_name %}
+    <li>
+      <a href="{{ build_share_url(country=selected_country) }}">{{ selected_country_name }}</a>
+    </li>
+    {% endif %}
+    {% if selected_league_name %}
+    <li>
+      <span aria-current="page">{{ selected_league_name }}</span>
+    </li>
+    {% endif %}
+  </ol>
+</nav>

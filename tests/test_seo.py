@@ -102,9 +102,18 @@ class OpenGraphTagsTests(unittest.TestCase):
         text = response.text
         self.assertIn('<meta property="og:type" content="website">', text)
         self.assertIn('<meta property="og:site_name" content="ratings1x2">', text)
-        self.assertIn('<meta property="og:title" content="ratings1x2 - soccer match ratings">', text)
+        self.assertIn('<meta property="og:title" content="ratings1x2 — Soccer Ratings, Match Odds &amp; League Analysis">', text)
         self.assertIn('<meta name="twitter:card" content="summary">', text)
         self.assertIn('<link rel="canonical" href="http://testserver/">', text)
+        # Verify JSON-LD WebSite Schema
+        self.assertIn('"@type": "WebSite"', text)
+        self.assertIn('"name": "ratings1x2"', text)
+        self.assertNotIn('"@type": "SportsLeague"', text)
+        self.assertNotIn('"@type": "BreadcrumbList"', text)
+        # Verify theme-color, author, and noscript fallback
+        self.assertIn('<meta name="theme-color" content="#e11d2e">', text)
+        self.assertIn('<meta name="author" content="ratings1x2">', text)
+        self.assertIn('<noscript>', text)
 
     def test_league_page_has_league_specific_og_tags_and_canonical(self) -> None:
         response = self.client.get("/england/premier-league")
@@ -113,7 +122,21 @@ class OpenGraphTagsTests(unittest.TestCase):
         self.assertIn(
             'href="http://testserver/england/premier-league"', text
         )
+        # Verify JSON-LD WebSite, SportsLeague and BreadcrumbList Schemas
+        self.assertIn('"@type": "WebSite"', text)
+        self.assertIn('"@type": "SportsLeague"', text)
+        self.assertIn('"name": "Premier League"', text)
+        self.assertIn('"@type": "BreadcrumbList"', text)
+        # Verify visible breadcrumbs
+        self.assertIn('class="breadcrumbs"', text)
+        self.assertIn('Home', text)
+        self.assertIn('Premier League', text)
 
+    def test_admin_page_has_robots_noindex_tag(self) -> None:
+        # Request the admin page and verify the presence of robots noindex meta tag
+        response = self.client.get("/admin")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('<meta name="robots" content="noindex, nofollow">', response.text)
 
 
 if __name__ == "__main__":

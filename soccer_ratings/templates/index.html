@@ -3,16 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e11d2e">
+  <meta name="author" content="ratings1x2">
   {% if selected_league_name %}
   {% set page_title = selected_league_name ~ " ratings & odds – ratings1x2" %}
   {% set page_description = "Home and away ratings, implied 1X2/DNB/O-U/BTTS odds for " ~ selected_league_name ~ "." %}
   {% else %}
-  {% set page_title = "ratings1x2 - soccer match ratings" %}
-  {% set page_description = "Home and away soccer ratings by league, with implied 1X2, DNB, over/under, and BTTS match odds." %}
+  {% set page_title = "ratings1x2 — Soccer Ratings, Match Odds & League Analysis" %}
+  {% set page_description = "Home and away soccer ratings by league. View implied 1X2, Draw No Bet (DNB), over/under, and both teams to score (BTTS) match odds based on historical performance." %}
   {% endif %}
   <title>{{ page_title }}</title>
   <meta name="description" content="{{ page_description }}">
-  <link rel="canonical" href="{{ request.url }}">
+  <link rel="canonical" href="{{ canonical_url }}">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="ratings1x2">
   <meta property="og:title" content="{{ page_title }}">
@@ -41,8 +43,82 @@
     .htmx-request #league-loading { display: block; }
     .htmx-request #league-content > *:not(#league-loading) { opacity: 0.4; pointer-events: none; }
   </style>
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "ratings1x2",
+    "url": "{{ (request.base_url | string).rstrip('/') }}/",
+    "description": "Home and away soccer ratings by league, with implied 1X2, DNB, over/under, and BTTS match odds.",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "{{ (request.base_url | string).rstrip('/') }}/?q={search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+
+  {% if selected_league_name %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SportsLeague",
+    "name": "{{ selected_league_name }}",
+    "url": "{{ request.url }}",
+    "description": "Home and away ratings, implied 1X2/DNB/O-U/BTTS odds for {{ selected_league_name }}."
+  }
+  </script>
+  {% endif %}
+
+  {% if selected_country_name %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": "{{ (request.base_url | string).rstrip('/') }}/"
+      }
+      {% set pos = 2 %}
+      {% if selected_continent %}
+      ,{
+        "@type": "ListItem",
+        "position": {{ pos }},
+        "name": "{{ selected_continent }}",
+        "item": "{{ (request.base_url | string).rstrip('/') ~ build_share_url(continent=selected_continent) }}"
+      }
+      {% set pos = pos + 1 %}
+      {% endif %}
+      ,{
+        "@type": "ListItem",
+        "position": {{ pos }},
+        "name": "{{ selected_country_name }}",
+        "item": "{{ (request.base_url | string).rstrip('/') ~ build_share_url(country=selected_country) }}"
+      }
+      {% if selected_league_name %}
+      {% set pos = pos + 1 %}
+      ,{
+        "@type": "ListItem",
+        "position": {{ pos }},
+        "name": "{{ selected_league_name }}",
+        "item": "{{ request.url }}"
+      }
+      {% endif %}
+    ]
+  }
+  </script>
+  {% endif %}
 </head>
 <body>
+  <noscript>
+    <div style="background: #fee2e2; color: #991b1b; padding: 12px; text-align: center; font-weight: 500; border-bottom: 1px solid #fca5a5; font-size: 14px; font-family: sans-serif;">
+      JavaScript is disabled. ratings1x2 requires JavaScript for fully interactive comparison and backtesting, but all league ratings tables, statistics, and history updates are fully rendered below for search engines and offline viewing.
+    </div>
+  </noscript>
   <main class="shell">
     <header class="brand-header">
       <div class="brand-logo-container">
@@ -72,6 +148,8 @@
         <span class="brand-tagline">soccer match ratings</span>
       </div>
     </header>
+
+    {% include "fragments/breadcrumbs.html" %}
 
     <section class="hero">
       <div class="hero-main">

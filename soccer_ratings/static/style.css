@@ -1086,3 +1086,44 @@ td.is-value-bet {
     display: none;
   }
 }
+
+/* Breadcrumbs Visible Component */
+.breadcrumbs {
+  margin-bottom: 24px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  gap: 8px;
+  align-items: center;
+}
+.breadcrumbs li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.breadcrumbs li:not(:last-child)::after {
+  content: "/";
+  color: var(--line-strong);
+  font-weight: 500;
+}
+.breadcrumbs a {
+  color: var(--accent-2);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 140ms ease;
+}
+.breadcrumbs a:hover {
+  color: var(--accent-3);
+  text-decoration: underline;
+}
+.breadcrumbs [aria-current="page"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
