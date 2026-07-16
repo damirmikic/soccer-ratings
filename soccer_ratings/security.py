@@ -35,6 +35,7 @@ SECURITY_HEADERS = {
         "img-src 'self' data:; "
         "connect-src 'self'"
     ),
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
 }
 
 

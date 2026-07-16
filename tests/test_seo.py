@@ -148,5 +148,31 @@ class OpenGraphTagsTests(unittest.TestCase):
         self.assertIn('<meta name="robots" content="noindex, nofollow">', response.text)
 
 
+class TechnicalSEOHeadersTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = make_client()
+
+    def test_hsts_security_header(self) -> None:
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("strict-transport-security", response.headers)
+        self.assertEqual(response.headers["strict-transport-security"], "max-age=63072000; includeSubDomains; preload")
+
+    def test_cache_control_and_vary_for_html(self) -> None:
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("cache-control", response.headers)
+        self.assertEqual(response.headers["cache-control"], "public, max-age=300, stale-while-revalidate=600")
+        self.assertIn("vary", response.headers)
+        self.assertIn("Accept-Encoding", response.headers["vary"])
+
+    def test_cache_control_for_static(self) -> None:
+        response = self.client.get("/static/style.css")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("cache-control", response.headers)
+        self.assertEqual(response.headers["cache-control"], "max-age=31536000, immutable")
+
+
 if __name__ == "__main__":
     unittest.main()
+

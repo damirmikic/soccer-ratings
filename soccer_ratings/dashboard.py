@@ -98,7 +98,21 @@ def create_dashboard_app():
             response = await call_next(request)
         for header, value in SECURITY_HEADERS.items():
             response.headers.setdefault(header, value)
+
+        path = request.url.path
+        if path.startswith("/static/"):
+            response.headers["Cache-Control"] = "max-age=31536000, immutable"
+        elif not path.startswith("/api/") and not path.startswith("/fragments/") and not path.startswith("/admin") and path != "/health":
+            response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=600"
+            vary = response.headers.get("Vary")
+            if vary:
+                if "Accept-Encoding" not in vary:
+                    response.headers["Vary"] = f"{vary}, Accept-Encoding"
+            else:
+                response.headers["Vary"] = "Accept-Encoding"
+
         return response
+
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     templates.env.filters["relative_time"] = format_relative_time
