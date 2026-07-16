@@ -16,9 +16,13 @@ from soccer_ratings.odds import (
     build_dnb_odds,
     build_match_odds,
     build_total_goals_odds,
+    build_match_odds,
+    build_total_goals_odds,
     calibrate_probabilities_with_history,
+    calculate_asian_handicap_probabilities,
     calculate_btts_probabilities,
     calculate_dnb_probabilities,
+    calculate_double_chance_probabilities,
     calculate_match_probabilities,
     calculate_total_goals_probabilities,
     estimate_expected_goals,
@@ -79,6 +83,37 @@ class OddsModelTests(unittest.TestCase):
         self.assertGreater(total_odds["under"], 0.0)
         self.assertGreater(btts_odds["yes"], 0.0)
         self.assertGreater(btts_odds["no"], 0.0)
+
+    def test_double_chance_probabilities_sum_components(self) -> None:
+        probs = {"home": 0.5, "draw": 0.3, "away": 0.2}
+        dc_probs = calculate_double_chance_probabilities(probs)
+        
+        self.assertAlmostEqual(dc_probs["1X"], 0.8, places=4)
+        self.assertAlmostEqual(dc_probs["X2"], 0.5, places=4)
+        self.assertAlmostEqual(dc_probs["12"], 0.7, places=4)
+        
+    def test_asian_handicap_minus_0_5(self) -> None:
+        probs = {"home": 0.5, "draw": 0.3, "away": 0.2}
+        ah_probs = calculate_asian_handicap_probabilities(1.5, 1.0, probs, -0.5)
+        
+        self.assertAlmostEqual(ah_probs["home"], 0.5, places=4)
+        self.assertAlmostEqual(ah_probs["away"], 0.5, places=4)
+        
+    def test_asian_handicap_minus_1_0_normalizes_without_push(self) -> None:
+        probs = {"home": 0.6, "draw": 0.25, "away": 0.15}
+        ah_probs = calculate_asian_handicap_probabilities(2.0, 1.0, probs, -1.0)
+        
+        self.assertAlmostEqual(ah_probs["home"] + ah_probs["away"], 1.0, places=4)
+        self.assertGreater(ah_probs["home"], 0.0)
+        self.assertGreater(ah_probs["away"], 0.0)
+        
+    def test_asian_handicap_minus_1_5(self) -> None:
+        probs = {"home": 0.6, "draw": 0.25, "away": 0.15}
+        ah_probs = calculate_asian_handicap_probabilities(2.0, 1.0, probs, -1.5)
+        
+        self.assertAlmostEqual(ah_probs["home"] + ah_probs["away"], 1.0, places=4)
+        self.assertLess(ah_probs["home"], probs["home"])
+        self.assertGreater(ah_probs["away"], probs["draw"] + probs["away"])
 
 
 class TeamComparisonTests(unittest.TestCase):

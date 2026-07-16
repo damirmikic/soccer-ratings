@@ -205,6 +205,101 @@ def build_btts_odds(expected_home_goals: float, expected_away_goals: float) -> d
     return build_odds_from_probabilities(probabilities)
 
 
+def calculate_double_chance_probabilities(probabilities: dict[str, float]) -> dict[str, float]:
+    return {
+        "1X": round(min(1.0, probabilities.get("home", 0.0) + probabilities.get("draw", 0.0)), 4),
+        "X2": round(min(1.0, probabilities.get("away", 0.0) + probabilities.get("draw", 0.0)), 4),
+        "12": round(min(1.0, probabilities.get("home", 0.0) + probabilities.get("away", 0.0)), 4),
+    }
+
+
+def build_double_chance_odds(probabilities: dict[str, float]) -> dict[str, float]:
+    return build_odds_from_probabilities(calculate_double_chance_probabilities(probabilities))
+
+
+def calculate_asian_handicap_probabilities(
+    expected_home_goals: float, 
+    expected_away_goals: float, 
+    match_probabilities: dict[str, float], 
+    line: float
+) -> dict[str, float]:
+    """Calculate probabilities for Asian Handicap markets. 
+    line is applied to the home team (e.g. -0.5, -1.0, -1.5).
+    """
+    if line == 0.0:
+        return calculate_dnb_probabilities(match_probabilities)
+    
+    if line == -0.5:
+        # Home must win to cover -0.5
+        home_prob = match_probabilities.get("home", 0.0)
+        away_prob = min(1.0, match_probabilities.get("draw", 0.0) + match_probabilities.get("away", 0.0))
+        return {"home": round(home_prob, 4), "away": round(away_prob, 4)}
+        
+    if line == 0.5:
+        # Home must win or draw to cover +0.5
+        home_prob = min(1.0, match_probabilities.get("home", 0.0) + match_probabilities.get("draw", 0.0))
+        away_prob = match_probabilities.get("away", 0.0)
+        return {"home": round(home_prob, 4), "away": round(away_prob, 4)}
+
+    # For -1.0 and -1.5, we need the probability of a 1-goal margin
+    # Using independent Poisson for home and away goals
+    total_home = max(0.0, expected_home_goals)
+    total_away = max(0.0, expected_away_goals)
+    
+    # Calculate probability of home winning by exactly 1 goal
+    # Sum P(H=k+1, A=k) for k=0 to 15
+    home_by_1 = 0.0
+    for k in range(16):
+        prob_k = _poisson_probability(k, total_away)
+        if prob_k < 1e-6 and k > 5:
+            break
+        home_by_1 += _poisson_probability(k + 1, total_home) * prob_k
+
+    if line == -1.0:
+        # Home covers if win by 2+
+        # Push if home wins by 1
+        # Away covers if draw or away wins
+        home_win_prob = match_probabilities.get("home", 0.0)
+        home_by_2_plus = max(0.0, home_win_prob - home_by_1)
+        away_prob = min(1.0, match_probabilities.get("draw", 0.0) + match_probabilities.get("away", 0.0))
+        
+        # Normalize without the push
+        non_push_prob = home_by_2_plus + away_prob
+        if non_push_prob <= 0:
+            return {"home": 0.0, "away": 0.0}
+            
+        return {
+            "home": round(home_by_2_plus / non_push_prob, 4),
+            "away": round(away_prob / non_push_prob, 4),
+        }
+        
+    if line == -1.5:
+        # Home covers if win by 2+
+        # Away covers if home wins by 1, draw, or away wins
+        home_win_prob = match_probabilities.get("home", 0.0)
+        home_by_2_plus = max(0.0, home_win_prob - home_by_1)
+        away_prob = min(1.0, match_probabilities.get("draw", 0.0) + match_probabilities.get("away", 0.0) + home_by_1)
+        
+        return {
+            "home": round(home_by_2_plus, 4), 
+            "away": round(away_prob, 4)
+        }
+
+    return {"home": 0.0, "away": 0.0}
+
+
+def build_asian_handicap_odds(
+    expected_home_goals: float, 
+    expected_away_goals: float, 
+    match_probabilities: dict[str, float], 
+    line: float
+) -> dict[str, float]:
+    probabilities = calculate_asian_handicap_probabilities(
+        expected_home_goals, expected_away_goals, match_probabilities, line
+    )
+    return build_odds_from_probabilities(probabilities)
+
+
 def summarize_historical_match_context(
     historical_matches: list[dict],
     target_rating_gap: float,

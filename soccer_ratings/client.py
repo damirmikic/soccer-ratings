@@ -11,16 +11,20 @@ from urllib.request import Request, urlopen
 from .matchhistory import build_form_guide, build_head_to_head
 from .odds import (
     apply_shin_margin,
-    build_dnb_odds,
+    build_asian_handicap_odds,
     build_btts_odds,
-    build_odds_from_probabilities,
+    build_dnb_odds,
+    build_double_chance_odds,
     build_match_odds,
+    build_odds_from_probabilities,
     build_total_goals_odds,
-    calibrate_probabilities_with_history,
+    calculate_asian_handicap_probabilities,
     calculate_btts_probabilities,
     calculate_dnb_probabilities,
+    calculate_double_chance_probabilities,
     calculate_match_probabilities,
     calculate_total_goals_probabilities,
+    calibrate_probabilities_with_history,
     estimate_expected_goals,
     summarize_historical_match_context,
     summarize_team_goal_context,
@@ -312,7 +316,7 @@ def compare_teams_from_ratings(
     away_ratings: list[dict],
     home_team: str,
     away_team: str,
-    margin_percent: float = 0.0,
+    margin_percent: float = 5.0,
     historical_matches: list[dict] | None = None,
     tuning_params: dict[str, float] | None = None,
 ) -> dict:
@@ -385,6 +389,29 @@ def compare_teams_from_ratings(
     dnb_market = apply_shin_margin(dnb_probabilities, margin_percent)
     total_goals_market = apply_shin_margin(total_goals_probabilities, margin_percent)
     btts_market = apply_shin_margin(btts_probabilities, margin_percent)
+    
+    dc_probabilities = calculate_double_chance_probabilities(probabilities)
+    dc_odds = build_double_chance_odds(dc_probabilities)
+    dc_market = apply_shin_margin(dc_probabilities, margin_percent)
+    
+    ah_05_probabilities = calculate_asian_handicap_probabilities(
+        expected_goals["home"], expected_goals["away"], probabilities, -0.5
+    )
+    ah_10_probabilities = calculate_asian_handicap_probabilities(
+        expected_goals["home"], expected_goals["away"], probabilities, -1.0
+    )
+    ah_15_probabilities = calculate_asian_handicap_probabilities(
+        expected_goals["home"], expected_goals["away"], probabilities, -1.5
+    )
+    
+    ah_05_odds = build_odds_from_probabilities(ah_05_probabilities)
+    ah_10_odds = build_odds_from_probabilities(ah_10_probabilities)
+    ah_15_odds = build_odds_from_probabilities(ah_15_probabilities)
+    
+    ah_05_market = apply_shin_margin(ah_05_probabilities, margin_percent)
+    ah_10_market = apply_shin_margin(ah_10_probabilities, margin_percent)
+    ah_15_market = apply_shin_margin(ah_15_probabilities, margin_percent)
+
     head_to_head = build_head_to_head(historical_matches or [], home_team, away_team)
     home_form = build_form_guide(historical_matches or [], home_team)
     away_form = build_form_guide(historical_matches or [], away_team)
@@ -426,6 +453,18 @@ def compare_teams_from_ratings(
         "market_total_goals_odds": total_goals_market["odds"],
         "market_btts_probabilities": btts_market["probabilities"],
         "market_btts_odds": btts_market["odds"],
+        "dc_probabilities": dc_probabilities,
+        "dc_odds": dc_odds,
+        "market_dc_odds": dc_market["odds"],
+        "ah_05_probabilities": ah_05_probabilities,
+        "ah_05_odds": ah_05_odds,
+        "market_ah_05_odds": ah_05_market["odds"],
+        "ah_10_probabilities": ah_10_probabilities,
+        "ah_10_odds": ah_10_odds,
+        "market_ah_10_odds": ah_10_market["odds"],
+        "ah_15_probabilities": ah_15_probabilities,
+        "ah_15_odds": ah_15_odds,
+        "market_ah_15_odds": ah_15_market["odds"],
         "shin": {
             "z": market["z"],
             "overround": market["overround"],
