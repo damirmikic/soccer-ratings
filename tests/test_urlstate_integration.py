@@ -51,7 +51,11 @@ class IndexSharedLinkRenderTests(unittest.TestCase):
         self.assertNotIn("match-card", response.text)
 
     def test_league_link_preselects_and_renders_league_content(self) -> None:
-        response = self.client.get("/?country=/England/&league=/England/Premier-League/")
+        response = self.client.get("/?country=/England/&league=/England/Premier-League/", follow_redirects=False)
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response.headers["location"], "/england/premier-league")
+
+        response = self.client.get("/england/premier-league")
         self.assertEqual(response.status_code, 200)
         self.assertIn('value="/England/" selected', response.text)
         self.assertIn('value="/England/Premier-League/" selected', response.text)
@@ -62,8 +66,13 @@ class IndexSharedLinkRenderTests(unittest.TestCase):
     def test_full_matchup_link_renders_comparison_inline(self) -> None:
         response = self.client.get(
             "/?country=/England/&league=/England/Premier-League/"
-            "&home=Arsenal&away=Chelsea&margin=2"
+            "&home=Arsenal&away=Chelsea&margin=2",
+            follow_redirects=False
         )
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response.headers["location"], "/england/premier-league/arsenal-vs-chelsea?margin=2.0")
+
+        response = self.client.get("/england/premier-league/arsenal-vs-chelsea?margin=2")
         self.assertEqual(response.status_code, 200)
         self.assertIn('value="Arsenal" selected', response.text)
         self.assertIn('value="Chelsea" selected', response.text)
@@ -72,16 +81,12 @@ class IndexSharedLinkRenderTests(unittest.TestCase):
         self.assertIn("odds-pill", response.text)
 
     def test_unresolvable_league_falls_back_gracefully(self) -> None:
-        with mock.patch(
-            "soccer_ratings.services.load_league_home_away_ratings_from_db",
-            side_effect=RuntimeError("db down"),
-        ), mock.patch(
-            "soccer_ratings.services.fetch_league_home_away_ratings",
-            side_effect=RuntimeError("scrape failed"),
-        ):
-            response = self.client.get("/?country=/England/&league=/Nowhere/Fake-League/")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn('id="league-loading"', response.text)
+        response = self.client.get("/?country=/England/&league=/Nowhere/Fake-League/", follow_redirects=False)
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response.headers["location"], "/england/fake-league")
+
+        response = self.client.get("/england/fake-league")
+        self.assertEqual(response.status_code, 404)
 
 
 class FragmentPushUrlTests(unittest.TestCase):
@@ -99,7 +104,7 @@ class FragmentPushUrlTests(unittest.TestCase):
         response = self.client.get("/fragments/league-options?country_url=/England/")
         self.assertEqual(
             response.headers["HX-Push-Url"],
-            "/?continent=Europe&country=%2FEngland%2F",
+            "/england",
         )
 
     def test_league_content_pushes_full_league_state(self) -> None:
@@ -108,7 +113,7 @@ class FragmentPushUrlTests(unittest.TestCase):
         )
         self.assertEqual(
             response.headers["HX-Push-Url"],
-            "/?continent=Europe&country=%2FEngland%2F&league=%2FEngland%2FPremier-League%2F",
+            "/england/premier-league",
         )
 
     def test_compare_pushes_full_matchup_state(self) -> None:
@@ -119,9 +124,9 @@ class FragmentPushUrlTests(unittest.TestCase):
         )
         self.assertEqual(
             response.headers["HX-Push-Url"],
-            "/?continent=Europe&country=%2FEngland%2F&league=%2FEngland%2FPremier-League%2F"
-            "&home=Arsenal&away=Chelsea&margin=3.5",
+            "/england/premier-league/arsenal-vs-chelsea?margin=3.5",
         )
+
 
     def test_compare_does_not_push_url_when_teams_incomplete(self) -> None:
         response = self.client.get(

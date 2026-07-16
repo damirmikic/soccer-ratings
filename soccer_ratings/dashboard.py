@@ -112,8 +112,15 @@ def create_dashboard_app():
     app.include_router(fragments_router)
     app.include_router(admin_router)
 
-    @app.get("/", response_class=HTMLResponse)
-    def index(request: Request) -> HTMLResponse:
+    def render_dashboard(
+        request: Request,
+        selected_continent: str = "",
+        selected_country: str = "",
+        selected_league: str = "",
+        selected_home: str = "",
+        selected_away: str = "",
+        margin_percent: float = 0.0,
+    ) -> HTMLResponse:
         svc: DashboardServices = app.state.services
         try:
             countries = svc.get_countries()
@@ -121,16 +128,8 @@ def create_dashboard_app():
             countries = []
         continents = sorted({c["continent"] for c in countries if c.get("continent")})
 
-        # Optional shareable-link state: /?continent=...&country=...&league=...&home=...&away=...&margin=...
-        selected_continent = request.query_params.get("continent", "")
-        selected_country = request.query_params.get("country", "")
-        selected_league = request.query_params.get("league", "")
-        selected_home = request.query_params.get("home", "")
-        selected_away = request.query_params.get("away", "")
-        try:
-            margin_percent = float(request.query_params.get("margin", "") or 0.0)
-        except ValueError:
-            margin_percent = 0.0
+        if selected_country and not selected_continent:
+            selected_continent = svc.get_continent_for_country(selected_country)
 
         visible_countries = countries
         if selected_continent:
@@ -194,6 +193,43 @@ def create_dashboard_app():
         context.update(league_context)
         return templates.TemplateResponse(request, "index.html", context)
 
+    @app.get("/", response_class=HTMLResponse)
+    def index(request: Request) -> HTMLResponse:
+        svc: DashboardServices = app.state.services
+        # Legacy query parameters redirect to clean path URLs
+        selected_country = request.query_params.get("country", "")
+        if selected_country:
+            selected_league = request.query_params.get("league", "")
+            selected_home = request.query_params.get("home", "")
+            selected_away = request.query_params.get("away", "")
+            try:
+                margin_percent = float(request.query_params.get("margin", "") or 0.0)
+            except ValueError:
+                margin_percent = 0.0
+
+            from fastapi.responses import RedirectResponse
+            clean_url = build_share_url(
+                services=svc,
+                country=selected_country,
+                league=selected_league,
+                home=selected_home,
+                away=selected_away,
+                margin=margin_percent,
+            )
+            return RedirectResponse(url=clean_url, status_code=301)
+
+        selected_continent = request.query_params.get("continent", "")
+        try:
+            margin_percent = float(request.query_params.get("margin", "") or 0.0)
+        except ValueError:
+            margin_percent = 0.0
+
+        return render_dashboard(
+            request,
+            selected_continent=selected_continent,
+            margin_percent=margin_percent,
+        )
+
     @app.get("/health", response_class=PlainTextResponse)
     def health() -> str:
         return "ok"
@@ -216,7 +252,7 @@ def create_dashboard_app():
         for country in countries:
             country_url = country.get("country_path")
             if country_url:
-                urls.append(base_url + build_share_url(country=country_url))
+                urls.append(base_url + build_share_url(services=svc, country=country_url))
 
         try:
             leagues_by_country = svc.get_known_leagues_by_country()
@@ -226,13 +262,115 @@ def create_dashboard_app():
             for league in leagues:
                 league_url = league.get("league_path")
                 if league_url:
-                    urls.append(base_url + build_share_url(country=country_url, league=league_url))
+                    urls.append(base_url + build_share_url(services=svc, country=country_url, league=league_url))
 
         return Response(content=build_sitemap_xml(urls), media_type="application/xml")
 
     @app.get("/favicon.svg")
     def favicon() -> Response:
         return Response(content=FAVICON_SVG, media_type="image/svg+xml")
+
+    def check_partial_method_match(request: Request) -> None:
+        from starlette.routing import Match
+        ignore_endpoints = (country_page, league_page, matchup_page)
+        for route in request.app.routes:
+            if hasattr(route, "original_router"):
+                for sub_route in route.original_router.routes:
+                    if sub_route.endpoint in ignore_endpoints:
+                        continue
+                    try:
+                        match, _ = sub_route.matches(request.scope)
+                    except Exception:
+                        match = Match.NONE
+                    if match == Match.PARTIAL:
+                        from fastapi import HTTPException
+                        raise HTTPException(status_code=405, detail="Method Not Allowed")
+            else:
+                if not hasattr(route, "endpoint") or route.endpoint in ignore_endpoints:
+                    continue
+                try:
+                    match, _ = route.matches(request.scope)
+                except Exception:
+                    match = Match.NONE
+                if match == Match.PARTIAL:
+                    from fastapi import HTTPException
+                    raise HTTPException(status_code=405, detail="Method Not Allowed")
+
+
+    # Clean path routing wildcards defined last so they don't overshadow health/sitemap/robots/static
+    @app.get("/{country_slug}", response_class=HTMLResponse)
+    def country_page(request: Request, country_slug: str) -> HTMLResponse:
+        check_partial_method_match(request)
+        svc: DashboardServices = app.state.services
+        from .slugify import get_country_path_by_slug
+        country_path = get_country_path_by_slug(country_slug, svc)
+        if not country_path:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Country not found")
+        return render_dashboard(request, selected_country=country_path)
+
+    @app.get("/{country_slug}/{league_slug}", response_class=HTMLResponse)
+    def league_page(request: Request, country_slug: str, league_slug: str) -> HTMLResponse:
+        check_partial_method_match(request)
+        svc: DashboardServices = app.state.services
+        from .slugify import get_country_path_by_slug, get_league_path_by_slug
+        country_path = get_country_path_by_slug(country_slug, svc)
+        if not country_path:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Country not found")
+        league_path = get_league_path_by_slug(country_path, league_slug, svc)
+        if not league_path:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="League not found")
+        return render_dashboard(request, selected_country=country_path, selected_league=league_path)
+
+    @app.get("/{country_slug}/{league_slug}/{matchup_slug}", response_class=HTMLResponse)
+    def matchup_page(request: Request, country_slug: str, league_slug: str, matchup_slug: str) -> HTMLResponse:
+        check_partial_method_match(request)
+        svc: DashboardServices = app.state.services
+        from .slugify import get_country_path_by_slug, get_league_path_by_slug, get_team_name_by_slug
+        country_path = get_country_path_by_slug(country_slug, svc)
+        if not country_path:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Country not found")
+        league_path = get_league_path_by_slug(country_path, league_slug, svc)
+        if not league_path:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="League not found")
+
+        if "-vs-" not in matchup_slug:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Invalid matchup slug")
+
+        parts = matchup_slug.split("-vs-")
+        if len(parts) != 2:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Invalid matchup slug")
+
+        home_slug, away_slug = parts
+        home_team = get_team_name_by_slug(league_path, home_slug, svc)
+        away_team = get_team_name_by_slug(league_path, away_slug, svc)
+        if not home_team or not away_team:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        try:
+            margin_percent = float(request.query_params.get("margin", "") or 0.0)
+        except ValueError:
+            margin_percent = 0.0
+
+        return render_dashboard(
+            request,
+            selected_country=country_path,
+            selected_league=league_path,
+            selected_home=home_team,
+            selected_away=away_team,
+            margin_percent=margin_percent,
+        )
+
+
+
+
 
     return app
 

@@ -47,7 +47,7 @@ def country_options(request: Request, continent: str = Query("")) -> HTMLRespons
     )
     # Country/league selection resets when the continent filter changes, so
     # the shareable URL only reflects the filter itself.
-    response.headers["HX-Push-Url"] = build_share_url(continent=continent)
+    response.headers["HX-Push-Url"] = build_share_url(services=_svc(request), continent=continent)
     return response
 
 
@@ -61,6 +61,7 @@ def league_options(request: Request, country_url: str = Query(...)) -> HTMLRespo
         {"leagues": leagues},
     )
     response.headers["HX-Push-Url"] = build_share_url(
+        services=svc,
         continent=svc.get_continent_for_country(country_url),
         country=country_url,
     )
@@ -93,6 +94,7 @@ def league_content(
         },
     )
     response.headers["HX-Push-Url"] = build_share_url(
+        services=svc,
         continent=svc.get_continent_for_country(country_url),
         country=country_url,
         league=league_url,
@@ -127,6 +129,7 @@ def compare(
         {"d": data},
     )
     response.headers["HX-Push-Url"] = build_share_url(
+        services=svc,
         continent=svc.get_continent_for_country(country_url),
         country=country_url,
         league=league_url,

@@ -43,11 +43,9 @@ class SitemapRouteTests(unittest.TestCase):
         self.assertEqual(response.headers["content-type"], "application/xml")
         text = response.text
         self.assertIn("<loc>http://testserver/</loc>", text)
-        self.assertIn("country=%2FEngland%2F", text)
-        self.assertIn("country=%2FNotImportedYet%2F", text)
-        self.assertIn("league=%2FEngland%2FPremier-League%2F", text)
-        # The not-yet-imported country should appear (as a country page)
-        # but must not have triggered a live scrape for its leagues.
+        self.assertIn("<loc>http://testserver/england</loc>", text)
+        self.assertIn("<loc>http://testserver/notimportedyet</loc>", text)
+        self.assertIn("<loc>http://testserver/england/premier-league</loc>", text)
         self.assertNotIn("league=%2FNotImportedYet%2F", text)
 
     def test_robots_txt_references_sitemap(self) -> None:
@@ -92,12 +90,13 @@ class OpenGraphTagsTests(unittest.TestCase):
         self.assertIn('<link rel="canonical" href="http://testserver/">', text)
 
     def test_league_page_has_league_specific_og_tags_and_canonical(self) -> None:
-        response = self.client.get("/?country=/England/&league=/England/Premier-League/")
+        response = self.client.get("/england/premier-league")
         text = response.text
         self.assertIn('<meta property="og:title" content="Premier League ratings &amp; odds', text)
         self.assertIn(
-            'href="http://testserver/?country=/England/&amp;league=/England/Premier-League/"', text
+            'href="http://testserver/england/premier-league"', text
         )
+
 
 
 if __name__ == "__main__":

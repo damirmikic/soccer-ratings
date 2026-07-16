@@ -28,9 +28,9 @@ class BuildShareUrlTests(unittest.TestCase):
         )
         self.assertEqual(
             url,
-            "/?continent=Europe&country=%2FEngland%2F&league=%2FEngland%2FPremier-League%2F"
-            "&home=Arsenal&away=Chelsea",
+            "/england/premier-league/arsenal-vs-chelsea",
         )
+
 
 
 if __name__ == "__main__":

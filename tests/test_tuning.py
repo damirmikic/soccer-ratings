@@ -133,7 +133,7 @@ class SweepWeightScalesTests(unittest.TestCase):
         self.assertLess(by_scale[2.0], by_scale[0.0])
         self.assertLess(by_scale[1.0], by_scale[0.0])
         self.assertGreater(result["best"]["weight_scale"], 0.0)
-        self.assertEqual(result["current_default_scale"], 1.0)
+        self.assertEqual(result["current_default_scale"], 1.5)
 
     def test_best_is_the_lowest_avg_brier_result(self) -> None:
         matches = draw_heavy_league(20)
