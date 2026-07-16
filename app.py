@@ -365,7 +365,7 @@ def main() -> int:
             if args.output:
                 args.output.write_text(output_csv, encoding="utf-8")
             else:
-                print(output_csv, end="")
+                sys.stdout.buffer.write(output_csv.encode("utf-8"))
             return 0
         payload = {"match_count": len(matches), "matches": matches}
     elif args.command == "backtest":
