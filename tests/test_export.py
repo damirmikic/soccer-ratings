@@ -39,12 +39,12 @@ class ExportTests(unittest.TestCase):
         mock_matches = [{"date": "10.05.26", "competition": "UK1", "home_team": "A", "away_team": "B", "home_odds": 2.0}]
         with mock.patch.object(sys, "argv", ["app.py", "export-history", "--format", "csv"]), mock.patch(
             "app.load_all_history_matches", return_value=mock_matches
-        ) as mock_load, mock.patch("builtins.print") as mock_print:
+        ) as mock_load, mock.patch("sys.stdout.buffer.write") as mock_write:
             exit_code = app.main()
 
         self.assertEqual(exit_code, 0)
         mock_load.assert_called_once()
-        printed = mock_print.call_args[0][0]
+        printed = mock_write.call_args[0][0].decode("utf-8")
         self.assertIn("Date,Competition,Home Team", printed)
         self.assertIn("10.05.26,UK1,A,B", printed)
 
