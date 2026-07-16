@@ -24,6 +24,11 @@ def make_client() -> TestClient:
 
 class SitemapRouteTests(unittest.TestCase):
     def setUp(self) -> None:
+        from datetime import datetime, timezone
+        mock_metadata = {
+            "/England/": datetime(2026, 7, 16, 10, 0, 0, tzinfo=timezone.utc),
+            "/England/Premier-League/": datetime(2026, 7, 16, 11, 0, 0, tzinfo=timezone.utc),
+        }
         patches = (
             mock.patch("soccer_ratings.services.fetch_all_rankings", return_value=_COUNTRIES),
             mock.patch(
@@ -31,6 +36,7 @@ class SitemapRouteTests(unittest.TestCase):
                 side_effect=_fake_load_country_leagues,
             ),
             mock.patch("soccer_ratings.services.fetch_country_leagues"),
+            mock.patch("soccer_ratings.services.DashboardServices.get_sitemap_metadata", return_value=mock_metadata),
         )
         for patcher in patches:
             patcher.start()
@@ -43,10 +49,21 @@ class SitemapRouteTests(unittest.TestCase):
         self.assertEqual(response.headers["content-type"], "application/xml")
         text = response.text
         self.assertIn("<loc>http://testserver/</loc>", text)
+        self.assertIn("<lastmod>2026-07-16</lastmod>", text)
+        self.assertIn("<changefreq>daily</changefreq>", text)
+        self.assertIn("<priority>1.0</priority>", text)
+
         self.assertIn("<loc>http://testserver/england</loc>", text)
+        self.assertIn("<changefreq>weekly</changefreq>", text)
+        self.assertIn("<priority>0.8</priority>", text)
+
         self.assertIn("<loc>http://testserver/notimportedyet</loc>", text)
+
         self.assertIn("<loc>http://testserver/england/premier-league</loc>", text)
+        self.assertIn("<changefreq>daily</changefreq>", text)
+        self.assertIn("<priority>0.6</priority>", text)
         self.assertNotIn("league=%2FNotImportedYet%2F", text)
+
 
     def test_robots_txt_references_sitemap(self) -> None:
         response = self.client.get("/robots.txt")

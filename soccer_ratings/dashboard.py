@@ -244,7 +244,18 @@ def create_dashboard_app():
         svc: DashboardServices = app.state.services
         base_url = str(request.base_url).rstrip("/")
 
-        urls = [base_url + "/"]
+        metadata = svc.get_sitemap_metadata() or {}
+        homepage_lastmod = max(metadata.values()) if metadata else None
+
+        entries = [
+            {
+                "loc": base_url + "/",
+                "lastmod": homepage_lastmod,
+                "changefreq": "daily",
+                "priority": 1.0,
+            }
+        ]
+
         try:
             countries = svc.get_countries()
         except Exception:
@@ -252,7 +263,14 @@ def create_dashboard_app():
         for country in countries:
             country_url = country.get("country_path")
             if country_url:
-                urls.append(base_url + build_share_url(services=svc, country=country_url))
+                url = base_url + build_share_url(services=svc, country=country_url)
+                lastmod = metadata.get(country_url)
+                entries.append({
+                    "loc": url,
+                    "lastmod": lastmod,
+                    "changefreq": "weekly",
+                    "priority": 0.8,
+                })
 
         try:
             leagues_by_country = svc.get_known_leagues_by_country()
@@ -262,9 +280,17 @@ def create_dashboard_app():
             for league in leagues:
                 league_url = league.get("league_path")
                 if league_url:
-                    urls.append(base_url + build_share_url(services=svc, country=country_url, league=league_url))
+                    url = base_url + build_share_url(services=svc, country=country_url, league=league_url)
+                    lastmod = metadata.get(league_url)
+                    entries.append({
+                        "loc": url,
+                        "lastmod": lastmod,
+                        "changefreq": "daily",
+                        "priority": 0.6,
+                    })
 
-        return Response(content=build_sitemap_xml(urls), media_type="application/xml")
+        return Response(content=build_sitemap_xml(entries), media_type="application/xml")
+
 
     @app.get("/favicon.svg")
     def favicon() -> Response:

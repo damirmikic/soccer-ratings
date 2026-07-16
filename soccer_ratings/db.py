@@ -1040,3 +1040,20 @@ def _country_name_from_path(country_url: str) -> str:
 
 def _parse_match_date(value: str):
     return datetime.strptime(value, "%d.%m.%y").date()
+
+
+def load_sitemap_metadata(database_url: str | None = None) -> dict[str, datetime]:
+    """Query country and league paths mapped to their latest updated_at times from the DB."""
+    metadata = {}
+    try:
+        with db_cursor(database_url, use_direct=False) as (_, cur):
+            cur.execute("SELECT country_path, updated_at FROM countries WHERE country_path IS NOT NULL")
+            for row in cur.fetchall():
+                metadata[row[0]] = row[1]
+            cur.execute("SELECT league_path, updated_at FROM leagues WHERE league_path IS NOT NULL")
+            for row in cur.fetchall():
+                metadata[row[0]] = row[1]
+    except Exception as exc:
+        logger.warning("Failed to load sitemap metadata from DB: %s", exc)
+    return metadata
+

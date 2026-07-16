@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+
 
 from .backtest import run_league_backtest
 from .cache import TTLCache
@@ -29,6 +31,7 @@ from .db import (
     load_league_home_away_ratings as load_league_home_away_ratings_from_db,
     load_league_summary_stats,
     run_calibration_sweep,
+    load_sitemap_metadata,
 )
 from .jobs import JobManager
 
@@ -143,6 +146,9 @@ class DashboardServices:
 
         self._known_leagues_cache.set(_KNOWN_LEAGUES_CACHE_KEY, result)
         return result
+
+    def get_sitemap_metadata(self) -> dict[str, datetime]:
+        return load_sitemap_metadata()
 
     def get_ratings(self, league_url: str) -> dict:
         cached = self._ratings_cache.get(league_url)
