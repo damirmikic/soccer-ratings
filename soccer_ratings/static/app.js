@@ -452,12 +452,24 @@ document.addEventListener("click", (e) => {
   const feedback = document.getElementById("calibration-sweep-copy-feedback");
   if (!dataEl) return;
 
+  const button = e.target;
+  const originalText = button.textContent;
+
   const showFeedback = (text) => {
-    if (!feedback) return;
-    feedback.textContent = text;
-    setTimeout(() => {
-      feedback.textContent = "";
-    }, 2000);
+    if (text === "Copied!") {
+      button.textContent = "Copied!";
+      button.classList.add("copied");
+      setTimeout(() => {
+        button.textContent = originalText;
+        button.classList.remove("copied");
+      }, 2000);
+    } else {
+      if (!feedback) return;
+      feedback.textContent = text;
+      setTimeout(() => {
+        feedback.textContent = "";
+      }, 2000);
+    }
   };
 
   let text;
@@ -564,12 +576,24 @@ document.addEventListener("click", (e) => {
     const feedback = document.getElementById("backtest-action-feedback");
     if (!dataEl) return;
 
+    const button = e.target;
+    const originalText = button.textContent;
+
     const showFeedback = (text) => {
-      if (!feedback) return;
-      feedback.textContent = text;
-      setTimeout(() => {
-        feedback.textContent = "";
-      }, 2000);
+      if (text === "Copied!" || text === "Exported!") {
+        button.textContent = text;
+        button.classList.add("copied");
+        setTimeout(() => {
+          button.textContent = originalText;
+          button.classList.remove("copied");
+        }, 2000);
+      } else {
+        if (!feedback) return;
+        feedback.textContent = text;
+        setTimeout(() => {
+          feedback.textContent = "";
+        }, 2000);
+      }
     };
 
     let result;
