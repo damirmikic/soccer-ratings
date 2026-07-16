@@ -123,6 +123,15 @@
   <style>
     .htmx-indicator { display: none; }
     .htmx-request .htmx-indicator { display: inline; }
+    .htmx-request.htmx-indicator { display: inline; }
+
+    /* Visual feedback for loading buttons */
+    button.htmx-request,
+    .htmx-request button {
+      opacity: 0.6;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
 
     .btn-secondary {
       display: inline-flex;
