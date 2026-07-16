@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import os
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -36,6 +37,57 @@ def get_database_url(explicit_url: str | None = None, *, use_direct: bool = Fals
     return database_url
 
 
+logger = logging.getLogger(__name__)
+
+_POOL = None
+
+
+def init_pool(database_url: str | None = None, min_size: int | None = None, max_size: int | None = None) -> None:
+    global _POOL
+    if _POOL is not None:
+        return
+
+    try:
+        url = get_database_url(database_url, use_direct=False)
+    except RuntimeError as exc:
+        logger.warning("Could not initialize connection pool: %s", exc)
+        return
+
+    if min_size is None:
+        try:
+            min_size = int(os.getenv("DB_POOL_MIN_SIZE", "1"))
+        except ValueError:
+            min_size = 1
+    if max_size is None:
+        try:
+            max_size = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
+        except ValueError:
+            max_size = 10
+
+    try:
+        from psycopg_pool import ConnectionPool
+    except ImportError as exc:
+        raise RuntimeError(
+            "psycopg-pool is required for connection pooling. Install it with `pip install psycopg-pool`."
+        ) from exc
+
+    logger.info("Initializing psycopg_pool.ConnectionPool with min_size=%d, max_size=%d", min_size, max_size)
+    _POOL = ConnectionPool(url, min_size=min_size, max_size=max_size, open=True)
+
+
+def close_pool() -> None:
+    global _POOL
+    if _POOL is not None:
+        logger.info("Closing psycopg_pool.ConnectionPool")
+        _POOL.close()
+        _POOL = None
+
+
+def get_pool():
+    global _POOL
+    return _POOL
+
+
 def connect(database_url: str | None = None, *, use_direct: bool = False):
     try:
         import psycopg
@@ -49,9 +101,15 @@ def connect(database_url: str | None = None, *, use_direct: bool = False):
 
 @contextmanager
 def db_cursor(database_url: str | None = None, *, use_direct: bool = False) -> Iterator:
-    with connect(database_url, use_direct=use_direct) as conn:
-        with conn.cursor() as cur:
-            yield conn, cur
+    global _POOL
+    if not use_direct and database_url is None and _POOL is not None:
+        with _POOL.connection() as conn:
+            with conn.cursor() as cur:
+                yield conn, cur
+    else:
+        with connect(database_url, use_direct=use_direct) as conn:
+            with conn.cursor() as cur:
+                yield conn, cur
 
 
 def init_db(database_url: str | None = None) -> None:

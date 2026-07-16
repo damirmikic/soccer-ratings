@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import errno
 import pathlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -51,6 +52,14 @@ Disallow: /admin
 """
 
 
+@asynccontextmanager
+async def lifespan(app):
+    from .db import init_pool, close_pool
+    init_pool()
+    yield
+    close_pool()
+
+
 def create_dashboard_app():
     from fastapi import FastAPI
     from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
@@ -68,6 +77,7 @@ def create_dashboard_app():
     app = FastAPI(
         title="ratings1x2",
         description="soccer match ratings",
+        lifespan=lifespan,
     )
     app.state.services = DashboardServices()
 

@@ -51,6 +51,11 @@ class DashboardServices:
         self._active_country_imports: dict[str, str] = {}
         self._active_calibration_sweep_job_id: str | None = None
 
+    @property
+    def pool(self):
+        from .db import get_pool
+        return get_pool()
+
     def get_countries(self) -> list[dict]:
         cached = self._countries_cache.get(_COUNTRIES_CACHE_KEY)
         if cached is not None:
