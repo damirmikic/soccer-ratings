@@ -1127,3 +1127,77 @@ td.is-value-bet {
   font-weight: 600;
 }
 
+/* Footer Styles */
+.app-footer {
+  margin-top: 48px;
+  padding: 40px 24px 20px;
+  border-top: 1px solid var(--line-strong);
+  background: var(--panel);
+  border-radius: 16px;
+  color: var(--muted);
+  font-family: "Inter", sans-serif;
+}
+
+.footer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 32px;
+  margin-bottom: 32px;
+}
+
+.footer-section h3 {
+  font-family: "Barlow", sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.footer-section ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.footer-section li {
+  margin-bottom: 8px;
+}
+
+.footer-section a {
+  color: var(--accent-2);
+  text-decoration: none;
+  transition: color 140ms ease;
+  font-size: 14px;
+}
+
+.footer-section a:hover {
+  color: var(--accent-3);
+  text-decoration: underline;
+}
+
+.footer-about p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.footer-bottom {
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  font-size: 12px;
+}
+
+.footer-bottom p {
+  margin: 0;
+}
+
+@media (max-width: 920px) {
+  .footer-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}

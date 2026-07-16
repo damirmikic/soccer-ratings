@@ -254,8 +254,38 @@
     </div>
   </main>
 
-  <footer class="site-footer">
-    <a href="/admin" class="market-meta">Admin</a>
+  <footer class="app-footer">
+    <div class="footer-grid">
+      <div class="footer-section">
+        <h3>Top Leagues</h3>
+        <ul>
+          <li><a href="/england/premier-league">Premier League</a></li>
+          <li><a href="/spain/la-liga">La Liga</a></li>
+          <li><a href="/germany/bundesliga">Bundesliga</a></li>
+          <li><a href="/italy/serie-a">Serie A</a></li>
+          <li><a href="/france/ligue-1">Ligue 1</a></li>
+        </ul>
+      </div>
+      <div class="footer-section">
+        <h3>Continents</h3>
+        <ul>
+          <li><a href="{{ build_share_url(continent='Europe') }}">Europe</a></li>
+          <li><a href="{{ build_share_url(continent='Americas') }}">Americas</a></li>
+          <li><a href="{{ build_share_url(continent='Asia') }}">Asia</a></li>
+          <li><a href="{{ build_share_url(continent='Africa') }}">Africa</a></li>
+          <li><a href="{{ build_share_url(continent='Oceania') }}">Oceania</a></li>
+        </ul>
+      </div>
+      <div class="footer-section footer-about">
+        <h3>About ratings1x2</h3>
+        <p>
+          ratings1x2 is a premium soccer analytics dashboard offering comprehensive home and away ratings for major leagues worldwide. We provide historical ratings, round-by-round fixture projections, and implied match odds (1X2, Draw No Bet, Over/Under, and Both Teams to Score) derived using Elo and decay calibration sweeps.
+        </p>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>&copy; 2026 ratings1x2. All rights reserved. | <a href="/admin" class="market-meta">Admin</a></p>
+    </div>
   </footer>
 
   <script src="/static/app.js"></script>

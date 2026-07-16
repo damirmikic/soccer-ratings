@@ -114,6 +114,15 @@ class OpenGraphTagsTests(unittest.TestCase):
         self.assertIn('<meta name="theme-color" content="#e11d2e">', text)
         self.assertIn('<meta name="author" content="ratings1x2">', text)
         self.assertIn('<noscript>', text)
+        # Verify expanded footer contents
+        self.assertIn('Top Leagues', text)
+        self.assertIn('href="/england/premier-league"', text)
+        self.assertIn('href="/spain/la-liga"', text)
+        self.assertIn('Continents', text)
+        self.assertIn('href="/?continent=Europe"', text)
+        self.assertIn('ratings1x2 is a premium soccer analytics dashboard', text)
+        self.assertIn('Admin', text)
+
 
     def test_league_page_has_league_specific_og_tags_and_canonical(self) -> None:
         response = self.client.get("/england/premier-league")
