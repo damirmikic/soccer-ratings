@@ -6,13 +6,46 @@
   <title>Admin login &ndash; ratings1x2</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 50px;
+      padding: 12px 18px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      font-family: 'Barlow', sans-serif;
+      font-weight: 700;
+      font-size: 14px;
+      background: #ffffff;
+      color: var(--ink);
+      text-decoration: none;
+      box-sizing: border-box;
+      transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease, background 140ms ease;
+      gap: 8px;
+    }
+    .btn-secondary:hover {
+      border-color: var(--line-strong);
+      background: var(--panel-2);
+      transform: translateY(-1px);
+    }
+    .btn-secondary:focus {
+      border-color: rgba(225, 29, 46, 0.35);
+      box-shadow: 0 0 0 4px rgba(225, 29, 46, 0.1);
+    }
+  </style>
 </head>
 <body>
   <main class="shell" style="max-width: 420px;">
-    <header class="brand-header">
+    <header class="brand-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 24px;">
       <div class="brand-logo-container">
         <span class="brand-wordmark">ratings1x2 admin</span>
       </div>
+      <a href="/" class="btn-secondary" style="min-height: 38px; padding: 8px 14px; font-size: 13px; border-radius: 8px; font-weight: 600;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        Back
+      </a>
     </header>
 
     {% if disabled %}

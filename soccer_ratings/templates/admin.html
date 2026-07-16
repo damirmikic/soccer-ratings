@@ -10,14 +10,20 @@
 </head>
 <body>
   <main class="shell">
-    <header class="brand-header">
+    <header class="brand-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
       <div class="brand-logo-container">
         <span class="brand-wordmark">ratings1x2 admin</span>
         <span class="brand-tagline">Data import &amp; cache tools</span>
       </div>
-      <form method="post" action="/admin/logout">
-        <button type="submit">Log out</button>
-      </form>
+      <div style="display: flex; gap: 12px; align-items: center; justify-content: flex-end; flex-wrap: wrap;">
+        <a href="/" class="btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+          Back to Dashboard
+        </a>
+        <form method="post" action="/admin/logout" style="margin: 0; display: inline-block;">
+          <button type="submit" style="margin: 0;">Log out</button>
+        </form>
+      </div>
     </header>
 
     <section class="controls">
@@ -117,6 +123,34 @@
   <style>
     .htmx-indicator { display: none; }
     .htmx-request .htmx-indicator { display: inline; }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 50px;
+      padding: 12px 18px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      font-family: 'Barlow', sans-serif;
+      font-weight: 700;
+      font-size: 14px;
+      background: #ffffff;
+      color: var(--ink);
+      text-decoration: none;
+      box-sizing: border-box;
+      transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease, background 140ms ease;
+      gap: 8px;
+    }
+    .btn-secondary:hover {
+      border-color: var(--line-strong);
+      background: var(--panel-2);
+      transform: translateY(-1px);
+    }
+    .btn-secondary:focus {
+      border-color: rgba(225, 29, 46, 0.35);
+      box-shadow: 0 0 0 4px rgba(225, 29, 46, 0.1);
+    }
   </style>
   <script src="/static/app.js"></script>
 </body>
