@@ -446,6 +446,37 @@ function buildCalibrationSweepSummaryText(result) {
   return lines.join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// Clipboard helper — falls back to execCommand for non-secure (HTTP) contexts
+// ---------------------------------------------------------------------------
+
+function copyToClipboard(text, onSuccess, onFailure) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(onSuccess, () => {
+      // Clipboard API rejected — try legacy fallback
+      legacyCopy(text, onSuccess, onFailure);
+    });
+  } else {
+    legacyCopy(text, onSuccess, onFailure);
+  }
+}
+
+function legacyCopy(text, onSuccess, onFailure) {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0;";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    if (ok) { onSuccess(); } else { onFailure(); }
+  } catch {
+    onFailure();
+  }
+}
+
 document.addEventListener("click", (e) => {
   if (!e.target || e.target.id !== "calibration-sweep-copy") return;
   const dataEl = document.getElementById("calibration-sweep-data");
@@ -480,7 +511,8 @@ document.addEventListener("click", (e) => {
     return;
   }
 
-  navigator.clipboard.writeText(text).then(
+  copyToClipboard(
+    text,
     () => showFeedback("Copied!"),
     () => showFeedback("Copy failed — select and copy manually.")
   );
@@ -630,7 +662,8 @@ document.addEventListener("click", (e) => {
 
     if (e.target.id === "backtest-copy") {
       const text = buildBacktestSummaryText(result);
-      navigator.clipboard.writeText(text).then(
+      copyToClipboard(
+        text,
         () => showFeedback("Copied!"),
         () => showFeedback("Copy failed — select and copy manually.")
       );

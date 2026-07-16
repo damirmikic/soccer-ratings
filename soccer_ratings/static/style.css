@@ -528,6 +528,18 @@ input[type="search"]:focus {
   padding-right: 24px;
 }
 
+/* Compact inline action button (e.g., Copy Results, Export CSV) */
+.btn-action {
+  width: auto;
+  min-height: unset;
+  padding: 7px 18px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  line-height: 1;
+}
+
 .multi-list {
   display: grid;
   gap: 12px;
