@@ -680,26 +680,58 @@ table {
 
 th, td {
   text-align: left;
-  padding: 13px 16px;
-  border-bottom: 1px solid rgba(16, 24, 40, 0.07);
-  font-size: 14px;
+  padding: 11px 14px;
+  border-bottom: 1px solid rgba(16, 24, 40, 0.06);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+thead tr {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 th {
   font-size: 10px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
-  background: #f8fafc;
+  background: #f1f5f9;
   font-weight: 700;
+  border-bottom: 2px solid rgba(16, 24, 40, 0.1);
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
+
+/* Column group tinting for outcome blocks (1 / X / 2) */
+th.col-group-1,
+td.col-group-1 { background-color: rgba(14, 165, 233, 0.07); }
+th.col-group-x,
+td.col-group-x { background-color: rgba(168, 85, 247, 0.07); }
+th.col-group-2,
+td.col-group-2 { background-color: rgba(249, 115, 22, 0.07); }
+
+/* Spanning group-label row */
+th.col-span-label {
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(16, 24, 40, 0.06);
+}
+th.col-span-label-1 { background-color: rgba(14, 165, 233, 0.13); color: #0284c7; }
+th.col-span-label-x { background-color: rgba(168, 85, 247, 0.13); color: #7c3aed; }
+th.col-span-label-2 { background-color: rgba(249, 115, 22, 0.13); color: #c2410c; }
 
 tbody tr:nth-child(odd) {
   background: #fcfdff;
 }
 
 tbody tr:hover {
-  background: #eef6ff;
+  background: #e8f4ff;
+  transition: background 0.12s ease;
 }
 
 tbody tr.is-selected-team {
@@ -710,14 +742,13 @@ tbody tr.is-selected-team {
 th[data-sort-key] {
   cursor: pointer;
   user-select: none;
-  white-space: nowrap;
 }
 
 th[data-sort-key]::after {
   content: "\2195";
-  margin-left: 6px;
-  opacity: 0.35;
-  font-size: 10px;
+  margin-left: 5px;
+  opacity: 0.3;
+  font-size: 9px;
 }
 
 th[data-sort-key].is-sorted-asc::after {
@@ -732,33 +763,112 @@ th[data-sort-key].is-sorted-desc::after {
   color: var(--accent-2);
 }
 
-td:first-child {
-  width: 74px;
-  font-family: "Barlow", sans-serif;
+/* Date cells — fixed narrow width, monospace blue */
+td.col-date {
+  width: 68px;
+  font-family: "Barlow", monospace;
+  font-size: 12px;
   font-weight: 700;
   color: var(--accent-2);
+  letter-spacing: 0.02em;
 }
 
-td:last-child {
+/* Match / team name — allow wrapping, emphasised */
+td.col-match {
+  white-space: normal;
+  min-width: 160px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* Rank — centred small label */
+td[data-cell="rank"] {
+  width: 44px;
+  text-align: center;
+  font-family: "Barlow", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+th[data-sort-key="rank"] { text-align: center; }
+
+/* Rating — right-aligned, large Barlow numeral */
+td[data-cell="rating"] {
+  font-family: "Barlow", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: right;
+}
+th[data-sort-key="rating"] { text-align: right; }
+
+/* Score / result — centred monospace */
+td.col-score,
+td.col-result {
+  font-family: "Barlow", monospace;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.04em;
+  width: 56px;
+}
+th.col-score, th.col-result { text-align: center; }
+
+/* Generic numeric (odds, probabilities) — right-aligned */
+td.col-num {
+  text-align: right;
+  font-family: "Barlow", sans-serif;
+  font-size: 13px;
+}
+th.col-num { text-align: right; }
+
+/* Edge cells — right-aligned, sign-colored */
+td.col-edge {
   text-align: right;
   font-family: "Barlow", sans-serif;
   font-weight: 700;
+  font-size: 13px;
+  min-width: 52px;
 }
+th.col-edge { text-align: right; }
+
+td.col-edge.edge-pos { color: #0a7c42; }
+td.col-edge.edge-neg { color: var(--accent); }
+td.col-edge.edge-zero { color: var(--muted); font-weight: 400; }
+
+/* Value bet highlight */
+td.is-value-bet {
+  background: rgba(10, 124, 66, 0.12);
+  color: #0a7c42;
+  font-weight: 700;
+  border-radius: 4px;
+}
+
+/* Historical odds ("Then") cells */
+td.col-odds {
+  text-align: right;
+  font-family: "Barlow", sans-serif;
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 54px;
+}
+th.col-odds { text-align: right; }
 
 .table-wrap {
   max-height: 720px;
   overflow: auto;
+  border-radius: 0 0 10px 10px;
 }
 
 .table-wrap::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 .table-wrap::-webkit-scrollbar-thumb {
-  background: rgba(14, 165, 233, 0.22);
+  background: rgba(14, 165, 233, 0.25);
   border-radius: 999px;
 }
+
 
 .empty {
   padding: 32px 20px;

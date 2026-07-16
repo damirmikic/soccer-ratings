@@ -128,21 +128,29 @@
     <div class="table-wrap" style="max-height:260px;">
       <table>
         <thead>
-          <tr><th>Date</th><th>Match</th><th>Score</th><th>1 Then</th><th>X Then</th><th>2 Then</th></tr>
+          <tr>
+            <th>Date</th>
+            <th class="col-match">Match</th>
+            <th class="col-score">Score</th>
+            <th class="col-odds col-group-1" title="Home win odds at time of match">Home</th>
+            <th class="col-odds col-group-x" title="Draw odds at time of match">Draw</th>
+            <th class="col-odds col-group-2" title="Away win odds at time of match">Away</th>
+          </tr>
         </thead>
         <tbody>
           {% for m in h2h.matches %}
           <tr>
-            <td>{{ m.date }}</td>
-            <td>{{ m.home_team }} vs {{ m.away_team }}</td>
-            <td>{{ m.result or "-" }}</td>
-            <td>{{ "%.2f"|format(m.home_odds) if m.home_odds is not none else "-" }}</td>
-            <td>{{ "%.2f"|format(m.draw_odds) if m.draw_odds is not none else "-" }}</td>
-            <td>{{ "%.2f"|format(m.away_odds) if m.away_odds is not none else "-" }}</td>
+            <td class="col-date">{{ m.date }}</td>
+            <td class="col-match">{{ m.home_team }} vs {{ m.away_team }}</td>
+            <td class="col-score">{{ m.result or "-" }}</td>
+            <td class="col-odds col-group-1">{{ "%.2f"|format(m.home_odds) if m.home_odds is not none else "-" }}</td>
+            <td class="col-odds col-group-x">{{ "%.2f"|format(m.draw_odds) if m.draw_odds is not none else "-" }}</td>
+            <td class="col-odds col-group-2">{{ "%.2f"|format(m.away_odds) if m.away_odds is not none else "-" }}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
+
     </div>
     <div class="market-meta" style="margin-top:8px;">
       Current market: 1 {{ "%.2f"|format(d.market_odds.home) }} &middot; X {{ "%.2f"|format(d.market_odds.draw) }} &middot; 2 {{ "%.2f"|format(d.market_odds.away) }}

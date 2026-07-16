@@ -190,7 +190,7 @@
           <thead>
             <tr>
               <th data-sort-key="rank" scope="col">Rank</th>
-              <th data-sort-key="team" scope="col">Team</th>
+              <th data-sort-key="team" scope="col" class="col-match">Team</th>
               <th data-sort-key="rating" scope="col">Rating</th>
             </tr>
           </thead>
@@ -198,12 +198,13 @@
             {% for t in home %}
             <tr data-team="{{ t.team }}">
               <td data-cell="rank">{{ t.rank }}</td>
-              <td data-cell="team">{{ t.team }}</td>
+              <td data-cell="team" class="col-match">{{ t.team }}</td>
               <td data-cell="rating">{{ "%.2f"|format(t.rating) }}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
+
       </div>
       {% else %}
       <div class="empty"><strong>No data</strong>No home ratings available.</div>
@@ -223,7 +224,7 @@
           <thead>
             <tr>
               <th data-sort-key="rank" scope="col">Rank</th>
-              <th data-sort-key="team" scope="col">Team</th>
+              <th data-sort-key="team" scope="col" class="col-match">Team</th>
               <th data-sort-key="rating" scope="col">Rating</th>
             </tr>
           </thead>
@@ -231,12 +232,13 @@
             {% for t in away %}
             <tr data-team="{{ t.team }}">
               <td data-cell="rank">{{ t.rank }}</td>
-              <td data-cell="team">{{ t.team }}</td>
+              <td data-cell="team" class="col-match">{{ t.team }}</td>
               <td data-cell="rating">{{ "%.2f"|format(t.rating) }}</td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
+
       </div>
       {% else %}
       <div class="empty"><strong>No data</strong>No away ratings available.</div>
