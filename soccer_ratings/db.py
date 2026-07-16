@@ -1057,3 +1057,205 @@ def load_sitemap_metadata(database_url: str | None = None) -> dict[str, datetime
         logger.warning("Failed to load sitemap metadata from DB: %s", exc)
     return metadata
 
+
+def get_weekly_rating_movers(database_url: str | None = None, limit: int = 10) -> dict:
+    """Find the largest positive and negative Elo rating changes over the past 7 days."""
+    climbers = []
+    sliders = []
+
+    query = """
+    WITH latest_snapshots AS (
+        SELECT DISTINCT ON (team_id)
+            team_id,
+            rating AS latest_rating,
+            fetched_at AS latest_fetched_at,
+            league_id
+        FROM rating_snapshots
+        WHERE scope = 'team' AND mode = 'general'
+        ORDER BY team_id, fetched_at DESC
+    ),
+    past_snapshots AS (
+        SELECT DISTINCT ON (team_id)
+            team_id,
+            rating AS past_rating,
+            fetched_at AS past_fetched_at
+        FROM rating_snapshots
+        WHERE scope = 'team' AND mode = 'general'
+          AND fetched_at <= NOW() - INTERVAL '6 days'
+        ORDER BY team_id, fetched_at DESC
+    )
+    SELECT 
+        t.name, 
+        t.team_path,
+        l.name AS league_name,
+        l.league_path,
+        c.name AS country_name,
+        ls.latest_rating,
+        ps.past_rating,
+        (ls.latest_rating - ps.past_rating) AS rating_change
+    FROM latest_snapshots ls
+    JOIN past_snapshots ps ON ls.team_id = ps.team_id
+    JOIN teams t ON t.id = ls.team_id
+    LEFT JOIN leagues l ON l.id = ls.league_id
+    LEFT JOIN countries c ON c.id = t.country_id
+    """
+
+    try:
+        with db_cursor(database_url, use_direct=False) as (_, cur):
+            # Get climbers (positive rating changes)
+            cur.execute(
+                query + " WHERE (ls.latest_rating - ps.past_rating) > 0 ORDER BY rating_change DESC LIMIT %s",
+                (limit,),
+            )
+            for row in cur.fetchall():
+                climbers.append(
+                    {
+                        "team": row[0],
+                        "team_path": row[1],
+                        "league": row[2],
+                        "league_path": row[3],
+                        "country": row[4],
+                        "latest_rating": row[5],
+                        "past_rating": row[6],
+                        "change": round(row[7], 2),
+                    }
+                )
+
+            # Get sliders (negative rating changes)
+            cur.execute(
+                query + " WHERE (ls.latest_rating - ps.past_rating) < 0 ORDER BY rating_change ASC LIMIT %s",
+                (limit,),
+            )
+            for row in cur.fetchall():
+                sliders.append(
+                    {
+                        "team": row[0],
+                        "team_path": row[1],
+                        "league": row[2],
+                        "league_path": row[3],
+                        "country": row[4],
+                        "latest_rating": row[5],
+                        "past_rating": row[6],
+                        "change": round(row[7], 2),
+                    }
+                )
+    except Exception as exc:
+        logger.warning("Failed to load weekly rating movers from DB: %s", exc)
+
+    return {"climbers": climbers, "sliders": sliders}
+
+
+def get_model_accuracy_summary(database_url: str | None = None) -> dict:
+    """Calculate overall model prediction accuracy stats and fetch top-performing tuned leagues."""
+    evaluated_count = 0
+    correct_predictions = 0
+    total_brier = 0.0
+
+    query = """
+    SELECT 
+        m.home_rating,
+        m.away_rating,
+        m.home_goals,
+        m.away_goals,
+        l.elo_divisor,
+        l.draw_max,
+        l.draw_divisor,
+        l.draw_min
+    FROM matches m
+    JOIN teams t ON t.id = m.home_team_id
+    LEFT JOIN leagues l ON (
+        l.league_path LIKE '%/' || m.competition || '/' 
+        OR l.league_path LIKE '%/' || m.competition
+    )
+    WHERE m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+    """
+
+    from .odds import calculate_match_probabilities
+
+    def brier_score(probabilities: dict[str, float], outcome: str) -> float:
+        return sum(
+            (probabilities[key] - (1.0 if key == outcome else 0.0)) ** 2 for key in ("home", "draw", "away")
+        )
+
+    try:
+        with db_cursor(database_url, use_direct=False) as (_, cur):
+            cur.execute(query)
+            rows = cur.fetchall()
+
+            for row in rows:
+                home_rating = float(row[0])
+                away_rating = float(row[1])
+                home_goals = int(row[2])
+                away_goals = int(row[3])
+
+                # Use tuned parameters if available, else defaults
+                elo_divisor = float(row[4]) if row[4] is not None else 400.0
+                draw_max = float(row[5]) if row[5] is not None else 0.30
+                draw_divisor = float(row[6]) if row[6] is not None else 500.0
+                draw_min = float(row[7]) if row[7] is not None else 0.18
+
+                probs = calculate_match_probabilities(
+                    home_rating,
+                    away_rating,
+                    elo_divisor=elo_divisor,
+                    draw_max=draw_max,
+                    draw_divisor=draw_divisor,
+                    draw_min=draw_min,
+                )
+
+                # Determine outcome
+                if home_goals > away_goals:
+                    outcome = "home"
+                elif home_goals < away_goals:
+                    outcome = "away"
+                else:
+                    outcome = "draw"
+
+                # Prediction is the outcome with the highest probability
+                pred = max(probs, key=probs.get)
+                if pred == outcome:
+                    correct_predictions += 1
+
+                brier = brier_score(probs, outcome)
+                total_brier += brier
+                evaluated_count += 1
+    except Exception as exc:
+        logger.warning("Failed to calculate model accuracy summary: %s", exc)
+
+    accuracy = (correct_predictions / evaluated_count) if evaluated_count > 0 else 0.0
+    avg_brier = (total_brier / evaluated_count) if evaluated_count > 0 else 0.0
+
+    tuned_leagues = []
+    try:
+        with db_cursor(database_url, use_direct=False) as (_, cur):
+            cur.execute(
+                """
+                SELECT l.name, c.name, l.league_path, l.weight_scale, l.elo_divisor
+                FROM leagues l
+                JOIN countries c ON c.id = l.country_id
+                WHERE l.weight_scale IS NOT NULL
+                ORDER BY l.updated_at DESC
+                LIMIT 5
+                """
+            )
+            for row in cur.fetchall():
+                tuned_leagues.append(
+                    {
+                        "name": row[0],
+                        "country": row[1],
+                        "league_path": row[2],
+                        "weight_scale": row[3],
+                        "elo_divisor": row[4],
+                    }
+                )
+    except Exception as exc:
+        logger.warning("Failed to load tuned leagues list: %s", exc)
+
+    return {
+        "accuracy": round(accuracy * 100, 1),
+        "avg_brier": round(avg_brier, 4),
+        "total_evaluated": evaluated_count,
+        "tuned_leagues": tuned_leagues,
+    }
+
+

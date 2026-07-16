@@ -21,6 +21,8 @@ from .db import (
     load_league_history_matches,
     load_league_tuning_parameters,
     matches_to_csv,
+    get_weekly_rating_movers,
+    get_model_accuracy_summary,
 )
 from .db import (
     import_country_history as import_country_history_to_db,
@@ -394,3 +396,10 @@ class DashboardServices:
 
     def get_job(self, job_id: str) -> dict | None:
         return self._jobs.get(job_id)
+
+    def get_weekly_rating_movers(self, limit: int = 10) -> dict:
+        return get_weekly_rating_movers(limit=limit)
+
+    def get_model_accuracy_summary(self) -> dict:
+        return get_model_accuracy_summary()
+
