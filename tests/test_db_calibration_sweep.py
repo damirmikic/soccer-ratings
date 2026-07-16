@@ -69,7 +69,7 @@ def _fake_sweep(weight_scale_two_wins: bool):
                 "matches_evaluated": 50,
             },
             "default": {
-                "weight_scale": 1.0,
+                "weight_scale": 1.5,
                 "elo_divisor": 400.0,
                 "draw_max": 0.30,
                 "draw_divisor": 500.0,

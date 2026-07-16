@@ -10,7 +10,7 @@ from .odds import (
 
 OUTCOMES = ("home", "draw", "away")
 
-DEFAULT_WEIGHT_SCALES = (0.0, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
+DEFAULT_WEIGHT_SCALES = (0.0, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0)
 DEFAULT_MIN_MATCHES = 30
 
 DEFAULT_ELO_DIVISORS = (300.0, 400.0, 500.0)
@@ -152,7 +152,7 @@ def sweep_weight_scales(
         "min_matches_required": min_matches,
         "results": results,
         "best": best,
-        "current_default_scale": 1.0,
+        "current_default_scale": 1.5,
     }
 
 
@@ -289,7 +289,7 @@ def sweep_league_parameters(
 
             # Capture default baseline if present in the grid
             if (
-                abs(ws - 1.0) < 1e-5
+                abs(ws - 1.5) < 1e-5
                 and abs(ed - 400.0) < 1e-5
                 and abs(d_max - 0.30) < 1e-5
                 and abs(d_div - 500.0) < 1e-5
@@ -302,7 +302,7 @@ def sweep_league_parameters(
         total_brier = 0.0
         for home_rating, away_rating, historical_context, outcome in precomputed:
             base_probs = calculate_match_probabilities(home_rating, away_rating)
-            probs = calibrate_probabilities_with_history(base_probs, historical_context, weight_scale=1.0)
+            probs = calibrate_probabilities_with_history(base_probs, historical_context, weight_scale=1.5)
             total_brier += _brier_score(probs, outcome)
         baseline_brier = total_brier / len(precomputed)
 
@@ -314,7 +314,7 @@ def sweep_league_parameters(
             "avg_brier": round(best_avg_brier, 4) if best_avg_brier < 999.0 else None,
         } if best_params else None,
         "default": {
-            "weight_scale": 1.0,
+            "weight_scale": 1.5,
             "elo_divisor": 400.0,
             "draw_max": 0.30,
             "draw_divisor": 500.0,

@@ -329,7 +329,7 @@ class HistoricalCalibrationTests(unittest.TestCase):
 
         default_call = calibrate_probabilities_with_history(base_probabilities, historical_context)
         explicit_scale_one = calibrate_probabilities_with_history(
-            base_probabilities, historical_context, weight_scale=1.0
+            base_probabilities, historical_context, weight_scale=1.5
         )
 
         self.assertEqual(default_call, explicit_scale_one)
