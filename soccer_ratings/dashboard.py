@@ -72,6 +72,7 @@ def create_dashboard_app():
     from .routes.countries import router as countries_router
     from .routes.fragments import router as fragments_router
     from .routes.history import router as history_router
+    from .routes.insights import router as insights_router
     from .security import EXPENSIVE_PATHS, SECURITY_HEADERS, RateLimiter, client_ip
 
     app = FastAPI(
@@ -127,6 +128,7 @@ def create_dashboard_app():
     app.include_router(history_router)
     app.include_router(fragments_router)
     app.include_router(admin_router)
+    app.include_router(insights_router)
 
     def render_dashboard(
         request: Request,
@@ -282,6 +284,12 @@ def create_dashboard_app():
                 "lastmod": homepage_lastmod,
                 "changefreq": "daily",
                 "priority": 1.0,
+            },
+            {
+                "loc": base_url + "/insights",
+                "lastmod": homepage_lastmod,
+                "changefreq": "daily",
+                "priority": 0.8,
             }
         ]
 

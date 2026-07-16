@@ -91,6 +91,12 @@ class StubServices:
             },
         )
 
+    def get_weekly_rating_movers(self, limit=10):
+        return {"climbers": [], "sliders": []}
+
+    def get_model_accuracy_summary(self):
+        return {"accuracy": 50.0, "avg_brier": 0.5, "total_evaluated": 100, "tuned_leagues": []}
+
 
 def make_client() -> TestClient:
     app = create_dashboard_app()
@@ -372,6 +378,15 @@ class DashboardServicesJobDedupTests(unittest.TestCase):
 
         second_job_id = svc.start_country_import_job("/England/")
         self.assertNotEqual(first_job_id, second_job_id)
+
+
+class InsightsRouteTests(unittest.TestCase):
+    def test_insights_renders_html(self) -> None:
+        client = make_client()
+        response = client.get("/insights")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Weekly Soccer Insights", response.text)
+        self.assertIn("Model Accuracy Digest", response.text)
 
 
 if __name__ == "__main__":

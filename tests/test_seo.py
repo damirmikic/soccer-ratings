@@ -64,6 +64,9 @@ class SitemapRouteTests(unittest.TestCase):
         self.assertIn("<priority>0.6</priority>", text)
         self.assertNotIn("league=%2FNotImportedYet%2F", text)
 
+        self.assertIn("<loc>http://testserver/insights</loc>", text)
+        self.assertIn("<priority>0.8</priority>", text)
+
 
     def test_robots_txt_references_sitemap(self) -> None:
         response = self.client.get("/robots.txt")
