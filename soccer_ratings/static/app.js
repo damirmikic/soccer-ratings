@@ -513,8 +513,8 @@ function buildBacktestSummaryText(result) {
     for (const row of calib) {
       lines.push([
         `${row.range_low}-${row.range_high}%`,
-        `${row.predicted_percent.toFixed(1)}%`,
-        `${row.actual_percent.toFixed(1)}%`,
+        `${row.predicted_percent != null ? row.predicted_percent.toFixed(1) : "-"}%`,
+        `${row.actual_percent != null ? row.actual_percent.toFixed(1) : "-"}%`,
         row.count
       ].join("\t"));
     }
@@ -525,19 +525,31 @@ function buildBacktestSummaryText(result) {
   if (matches.length) {
     lines.push(["Date", "Match", "Result", "Model Home", "Market Home", "Edge Home", "Model Draw", "Market Draw", "Edge Draw", "Model Away", "Market Away", "Edge Away"].join("\t"));
     for (const m of matches) {
+      const modelHome = m.model_probabilities && m.model_probabilities.home != null ? `${(m.model_probabilities.home * 100).toFixed(0)}%` : "-";
+      const marketHome = m.market_probabilities && m.market_probabilities.home != null ? `${(m.market_probabilities.home * 100).toFixed(0)}%` : "-";
+      const edgeHome = m.edges && m.edges.home != null ? m.edges.home.toFixed(1) : "-";
+
+      const modelDraw = m.model_probabilities && m.model_probabilities.draw != null ? `${(m.model_probabilities.draw * 100).toFixed(0)}%` : "-";
+      const marketDraw = m.market_probabilities && m.market_probabilities.draw != null ? `${(m.market_probabilities.draw * 100).toFixed(0)}%` : "-";
+      const edgeDraw = m.edges && m.edges.draw != null ? m.edges.draw.toFixed(1) : "-";
+
+      const modelAway = m.model_probabilities && m.model_probabilities.away != null ? `${(m.model_probabilities.away * 100).toFixed(0)}%` : "-";
+      const marketAway = m.market_probabilities && m.market_probabilities.away != null ? `${(m.market_probabilities.away * 100).toFixed(0)}%` : "-";
+      const edgeAway = m.edges && m.edges.away != null ? m.edges.away.toFixed(1) : "-";
+
       lines.push([
-        m.date,
-        `${m.home_team} vs ${m.away_team}`,
-        m.result,
-        `${(m.model_probabilities.home * 100).toFixed(0)}%`,
-        `${(m.market_probabilities.home * 100).toFixed(0)}%`,
-        m.edges.home.toFixed(1),
-        `${(m.model_probabilities.draw * 100).toFixed(0)}%`,
-        `${(m.market_probabilities.draw * 100).toFixed(0)}%`,
-        m.edges.draw.toFixed(1),
-        `${(m.model_probabilities.away * 100).toFixed(0)}%`,
-        `${(m.market_probabilities.away * 100).toFixed(0)}%`,
-        m.edges.away.toFixed(1)
+        m.date || "-",
+        `${m.home_team || "?"} vs ${m.away_team || "?"}`,
+        m.result || "-",
+        modelHome,
+        marketHome,
+        edgeHome,
+        modelDraw,
+        marketDraw,
+        edgeDraw,
+        modelAway,
+        marketAway,
+        edgeAway
       ].join("\t"));
     }
   }
@@ -550,19 +562,31 @@ function buildBacktestCSV(result) {
   const lines = [];
   lines.push(["Date", "Match", "Result", "Model Home", "Market Home", "Edge Home", "Model Draw", "Market Draw", "Edge Draw", "Model Away", "Market Away", "Edge Away"].join(","));
   for (const m of matches) {
+    const modelHome = m.model_probabilities && m.model_probabilities.home != null ? `${(m.model_probabilities.home * 100).toFixed(0)}%` : "-";
+    const marketHome = m.market_probabilities && m.market_probabilities.home != null ? `${(m.market_probabilities.home * 100).toFixed(0)}%` : "-";
+    const edgeHome = m.edges && m.edges.home != null ? m.edges.home.toFixed(1) : "-";
+
+    const modelDraw = m.model_probabilities && m.model_probabilities.draw != null ? `${(m.model_probabilities.draw * 100).toFixed(0)}%` : "-";
+    const marketDraw = m.market_probabilities && m.market_probabilities.draw != null ? `${(m.market_probabilities.draw * 100).toFixed(0)}%` : "-";
+    const edgeDraw = m.edges && m.edges.draw != null ? m.edges.draw.toFixed(1) : "-";
+
+    const modelAway = m.model_probabilities && m.model_probabilities.away != null ? `${(m.model_probabilities.away * 100).toFixed(0)}%` : "-";
+    const marketAway = m.market_probabilities && m.market_probabilities.away != null ? `${(m.market_probabilities.away * 100).toFixed(0)}%` : "-";
+    const edgeAway = m.edges && m.edges.away != null ? m.edges.away.toFixed(1) : "-";
+
     const row = [
-      m.date,
-      `"${m.home_team} vs ${m.away_team}"`,
-      m.result,
-      `${(m.model_probabilities.home * 100).toFixed(0)}%`,
-      `${(m.market_probabilities.home * 100).toFixed(0)}%`,
-      m.edges.home.toFixed(1),
-      `${(m.model_probabilities.draw * 100).toFixed(0)}%`,
-      `${(m.market_probabilities.draw * 100).toFixed(0)}%`,
-      m.edges.draw.toFixed(1),
-      `${(m.model_probabilities.away * 100).toFixed(0)}%`,
-      `${(m.market_probabilities.away * 100).toFixed(0)}%`,
-      m.edges.away.toFixed(1)
+      m.date || "-",
+      `"${m.home_team || "?"} vs ${m.away_team || "?"}"`,
+      m.result || "-",
+      modelHome,
+      marketHome,
+      edgeHome,
+      modelDraw,
+      marketDraw,
+      edgeDraw,
+      modelAway,
+      marketAway,
+      edgeAway
     ];
     lines.push(row.join(","));
   }

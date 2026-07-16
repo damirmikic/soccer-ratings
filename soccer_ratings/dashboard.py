@@ -116,6 +116,7 @@ def create_dashboard_app():
 
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+    app.state.templates = templates
     templates.env.filters["relative_time"] = format_relative_time
     templates.env.globals["build_share_url"] = lambda **kwargs: build_share_url(services=app.state.services, **kwargs)
 
@@ -219,6 +220,7 @@ def create_dashboard_app():
             "country_url": selected_country,
             "d": comparison,
             "canonical_url": canonical_url,
+            "build_share_url": lambda **kwargs: build_share_url(services=svc, **kwargs),
         }
         context.update(league_context)
 
