@@ -452,13 +452,17 @@ document.addEventListener("click", (e) => {
   const feedback = document.getElementById("calibration-sweep-copy-feedback");
   if (!dataEl) return;
 
-  const showFeedback = (text) => {
-    if (!feedback) return;
-    feedback.textContent = text;
-    setTimeout(() => {
-      feedback.textContent = "";
-    }, 2000);
-  };
+  const btn = e.target;
+  const originalText = btn.dataset.originalText || btn.textContent;
+    btn.dataset.originalText = originalText;
+    const showFeedback = (text) => {
+      btn.textContent = text;
+      if (feedback) feedback.textContent = text;
+      setTimeout(() => {
+        btn.textContent = originalText;
+        if (feedback) feedback.textContent = "";
+      }, 2000);
+    };
 
   let text;
   try {
@@ -472,4 +476,136 @@ document.addEventListener("click", (e) => {
     () => showFeedback("Copied!"),
     () => showFeedback("Copy failed — select and copy manually.")
   );
+});
+
+
+// ---------------------------------------------------------------------------
+// Backtest results: "Copy Results" and "Export CSV" buttons
+// ---------------------------------------------------------------------------
+
+function fmtBacktestValue(value) {
+  return typeof value === "number" ? value.toFixed(4) : "-";
+}
+
+function buildBacktestSummaryText(result) {
+  const lines = ["Backtest Results"];
+  lines.push(`Matches Backtested: ${result.matches_evaluated}`);
+  lines.push(`Avg Brier Score: ${fmtBacktestValue(result.avg_brier)}`);
+  lines.push(`Pick Accuracy: ${result.pick_accuracy_percent != null ? result.pick_accuracy_percent.toFixed(1) + "%" : "-"}`);
+  lines.push(`Value Bets Found: ${result.value_bet_count}`);
+  lines.push(`Value Bet Hit Rate: ${result.hit_rate_percent != null ? result.hit_rate_percent.toFixed(1) + "%" : "-"}`);
+  lines.push(`ROI (flat stake): ${result.roi_percent != null ? result.roi_percent.toFixed(1) + "%" : "-"}`);
+  lines.push(`Edge Threshold: ${result.edge_threshold_percent != null ? result.edge_threshold_percent.toFixed(1) + "%" : "-"}`);
+  lines.push("");
+
+  const calib = result.calibration || [];
+  if (calib.length) {
+    lines.push("Calibration Table");
+    lines.push(["Predicted Range", "Predicted Avg", "Actual Freq", "Samples"].join("\t"));
+    for (const row of calib) {
+      lines.push([
+        `${row.range_low}-${row.range_high}%`,
+        `${row.predicted_percent.toFixed(1)}%`,
+        `${row.actual_percent.toFixed(1)}%`,
+        row.count
+      ].join("\t"));
+    }
+    lines.push("");
+  }
+
+  const matches = result.matches || [];
+  if (matches.length) {
+    lines.push(["Date", "Match", "Result", "Model Home", "Market Home", "Edge Home", "Model Draw", "Market Draw", "Edge Draw", "Model Away", "Market Away", "Edge Away"].join("\t"));
+    for (const m of matches) {
+      lines.push([
+        m.date,
+        `${m.home_team} vs ${m.away_team}`,
+        m.result,
+        `${(m.model_probabilities.home * 100).toFixed(0)}%`,
+        `${(m.market_probabilities.home * 100).toFixed(0)}%`,
+        m.edges.home.toFixed(1),
+        `${(m.model_probabilities.draw * 100).toFixed(0)}%`,
+        `${(m.market_probabilities.draw * 100).toFixed(0)}%`,
+        m.edges.draw.toFixed(1),
+        `${(m.model_probabilities.away * 100).toFixed(0)}%`,
+        `${(m.market_probabilities.away * 100).toFixed(0)}%`,
+        m.edges.away.toFixed(1)
+      ].join("\t"));
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function buildBacktestCSV(result) {
+  const matches = result.matches || [];
+  const lines = [];
+  lines.push(["Date", "Match", "Result", "Model Home", "Market Home", "Edge Home", "Model Draw", "Market Draw", "Edge Draw", "Model Away", "Market Away", "Edge Away"].join(","));
+  for (const m of matches) {
+    const row = [
+      m.date,
+      `"${m.home_team} vs ${m.away_team}"`,
+      m.result,
+      `${(m.model_probabilities.home * 100).toFixed(0)}%`,
+      `${(m.market_probabilities.home * 100).toFixed(0)}%`,
+      m.edges.home.toFixed(1),
+      `${(m.model_probabilities.draw * 100).toFixed(0)}%`,
+      `${(m.market_probabilities.draw * 100).toFixed(0)}%`,
+      m.edges.draw.toFixed(1),
+      `${(m.model_probabilities.away * 100).toFixed(0)}%`,
+      `${(m.market_probabilities.away * 100).toFixed(0)}%`,
+      m.edges.away.toFixed(1)
+    ];
+    lines.push(row.join(","));
+  }
+  return lines.join("\n");
+}
+
+document.addEventListener("click", (e) => {
+  if (!e.target) return;
+  if (e.target.id === "backtest-copy" || e.target.id === "backtest-export-csv") {
+    const dataEl = document.getElementById("backtest-data");
+    const feedback = document.getElementById("backtest-action-feedback");
+    if (!dataEl) return;
+
+    const btn = e.target;
+    const originalText = btn.dataset.originalText || btn.textContent;
+    btn.dataset.originalText = originalText;
+    const showFeedback = (text) => {
+      btn.textContent = text;
+      if (feedback) feedback.textContent = text;
+      setTimeout(() => {
+        btn.textContent = originalText;
+        if (feedback) feedback.textContent = "";
+      }, 2000);
+    };
+
+    let result;
+    try {
+      result = JSON.parse(dataEl.textContent);
+    } catch {
+      showFeedback("Action failed.");
+      return;
+    }
+
+    if (e.target.id === "backtest-copy") {
+      const text = buildBacktestSummaryText(result);
+      navigator.clipboard.writeText(text).then(
+        () => showFeedback("Copied!"),
+        () => showFeedback("Copy failed — select and copy manually.")
+      );
+    } else if (e.target.id === "backtest-export-csv") {
+      const csv = buildBacktestCSV(result);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", "backtest_results.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showFeedback("Exported!");
+    }
+  }
 });
