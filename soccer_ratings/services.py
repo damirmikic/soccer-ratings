@@ -14,7 +14,7 @@ from .client import (
     load_cached_league_history,
     summarize_league_stats,
 )
-from .db import load_league_history_matches
+from .db import load_all_history_matches, load_league_history_matches, matches_to_csv
 from .db import (
     import_country_history as import_country_history_to_db,
     import_league_history as import_league_history_to_db,
@@ -264,8 +264,14 @@ class DashboardServices:
 
     def get_history_status(self, league_url: str) -> dict:
         cached = load_cached_league_history(league_url)
+        db_count = 0
+        try:
+            db_matches = load_league_history_matches(league_url)
+            db_count = len(db_matches)
+        except Exception:
+            db_count = 0
         if cached is None:
-            return {"cached": False, "league_url": league_url}
+            return {"cached": False, "league_url": league_url, "db_match_count": db_count}
         return {
             "cached": True,
             "league_url": cached.get("league_url", league_url),
@@ -273,7 +279,27 @@ class DashboardServices:
             "raw_match_count": cached.get("raw_match_count", 0),
             "deduped_match_count": cached.get("deduped_match_count", 0),
             "cache_path": cached.get("cache_path", ""),
+            "db_match_count": db_count,
         }
+
+    def export_history_matches(
+        self,
+        league_url: str = "",
+        competition: str = "",
+        completed_only: bool = True,
+    ) -> list[dict]:
+        if league_url:
+            return load_league_history_matches(league_url, completed_only=completed_only)
+        return load_all_history_matches(competition=competition, completed_only=completed_only)
+
+    def export_history_csv(
+        self,
+        league_url: str = "",
+        competition: str = "",
+        completed_only: bool = True,
+    ) -> str:
+        matches = self.export_history_matches(league_url, competition, completed_only=completed_only)
+        return matches_to_csv(matches)
 
     def build_history_cache(self, league_url: str, refresh: bool) -> dict:
         return build_and_cache_league_history(league_url, force_refresh=refresh)

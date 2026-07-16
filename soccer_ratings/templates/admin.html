@@ -74,6 +74,25 @@
     <section class="history-cache" style="margin-top: 22px; display: block;">
       <div style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px;">
         <div>
+          <strong>Export Historical Data</strong>
+          <div class="history-cache-meta">
+            Export historical results, odds, and ratings from all matches imported into the Postgres database.
+          </div>
+        </div>
+        <div style="display:flex; gap: 8px;">
+          <a href="/api/history/export?format=csv" class="button-link" style="text-decoration: none; padding: 6px 12px; font-size: 13px; border-radius: 4px; background: var(--card-bg); border: 1px solid var(--border); color: var(--text);">
+            Export All CSV
+          </a>
+          <a href="/api/history/export?format=json" class="button-link" style="text-decoration: none; padding: 6px 12px; font-size: 13px; border-radius: 4px; background: var(--card-bg); border: 1px solid var(--border); color: var(--text);">
+            Export All JSON
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="history-cache" style="margin-top: 22px; display: block;">
+      <div style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+        <div>
           <strong>Model Tuning</strong>
           <div class="history-cache-meta">
             Walk-forward backtests every imported league at several history-calibration weights and

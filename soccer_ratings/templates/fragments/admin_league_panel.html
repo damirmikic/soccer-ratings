@@ -5,12 +5,17 @@
       Cached: {{ history_status.deduped_match_count }} deduped matches from {{ history_status.team_count }} teams ({{ history_status.raw_match_count }} raw).
     </div>
     <div class="history-cache-meta">{{ history_status.cache_path or "" }}</div>
+    {% if history_status.db_match_count is defined %}
+    <div class="history-cache-meta" style="margin-top: 4px;">
+      Database: {{ history_status.db_match_count }} imported matches stored in DB.
+    </div>
+    {% endif %}
     {% else %}
     <div class="history-cache-meta">No cached league history dataset for this league yet.</div>
     <div class="history-cache-meta"></div>
     {% endif %}
   </div>
-  <div class="history-actions">
+  <div class="history-actions" style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
     <button
       hx-post="/fragments/history-build"
       hx-vals='{"league_url": "{{ league_url }}", "refresh": "1"}'
@@ -27,6 +32,18 @@
       hx-indicator="#history-spinner">
       Import To DB
     </button>
+    <a
+      href="/api/history/export?league_url={{ league_url }}&format=csv"
+      class="button-link"
+      style="text-decoration: none; padding: 6px 12px; font-size: 13px; border-radius: 4px; background: var(--card-bg); border: 1px solid var(--border); color: var(--text); display: inline-flex; align-items: center;">
+      Export DB CSV
+    </a>
+    <a
+      href="/api/history/export?league_url={{ league_url }}&format=json"
+      class="button-link"
+      style="text-decoration: none; padding: 6px 12px; font-size: 13px; border-radius: 4px; background: var(--card-bg); border: 1px solid var(--border); color: var(--text); display: inline-flex; align-items: center;">
+      Export DB JSON
+    </a>
   </div>
   <span id="history-spinner" class="htmx-indicator" style="font-size: 12px; color: var(--muted); align-self: center;"><span class="spinner" aria-hidden="true"></span> Working&hellip;</span>
 </div>

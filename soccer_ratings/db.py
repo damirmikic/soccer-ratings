@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import os
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -464,6 +466,20 @@ def run_calibration_sweep(
     }
 
 
+def _compute_match_derived_fields(home_goals: int | None, away_goals: int | None) -> tuple[int | None, str | None, str | None]:
+    if home_goals is None or away_goals is None:
+        return None, None, None
+    total_goals = home_goals + away_goals
+    if home_goals > away_goals:
+        winner = "home"
+    elif home_goals < away_goals:
+        winner = "away"
+    else:
+        winner = "draw"
+    btts = "Y" if (home_goals > 0 and away_goals > 0) else "N"
+    return total_goals, winner, btts
+
+
 def load_league_history_matches(
     league_url: str,
     database_url: str | None = None,
@@ -488,16 +504,12 @@ def load_league_history_matches(
                 m.home_rating,
                 m.away_rating,
                 m.home_goals,
-                m.away_goals,
-                m.result_text,
-                source_team.name AS focal_team,
-                m.source_team_path
+                m.away_goals
             FROM matches m
             JOIN teams home_team ON home_team.id = m.home_team_id
             JOIN teams away_team ON away_team.id = m.away_team_id
-            LEFT JOIN teams source_team ON source_team.id = m.source_team_id
             WHERE m.competition = %s
-              AND (%s = FALSE OR (m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL))
+              AND (%s::bool = FALSE OR (m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL))
             ORDER BY m.match_date DESC, m.id DESC
             """,
             (competition, completed_only),
@@ -506,6 +518,7 @@ def load_league_history_matches(
 
     matches = []
     for row in rows:
+        total_goals, winner, btts = _compute_match_derived_fields(row[9], row[10])
         matches.append(
             {
                 "date": row[0].strftime("%d.%m.%y"),
@@ -519,12 +532,123 @@ def load_league_history_matches(
                 "away_rating": float(row[8]),
                 "home_goals": row[9],
                 "away_goals": row[10],
-                "result": row[11],
-                "focal_team": row[12],
-                "source_team_path": row[13],
+                "total_goals": total_goals,
+                "winner": winner,
+                "btts?": btts,
             }
         )
     return matches
+
+
+def load_all_history_matches(
+    database_url: str | None = None,
+    *,
+    competition: str | None = None,
+    completed_only: bool = True,
+) -> list[dict]:
+    comp_code = competition.upper() if competition else None
+    with db_cursor(database_url, use_direct=False) as (_, cur):
+        cur.execute(
+            """
+            SELECT
+                m.match_date,
+                m.competition,
+                home_team.name AS home_team,
+                away_team.name AS away_team,
+                m.home_odds,
+                m.draw_odds,
+                m.away_odds,
+                m.home_rating,
+                m.away_rating,
+                m.home_goals,
+                m.away_goals
+            FROM matches m
+            JOIN teams home_team ON home_team.id = m.home_team_id
+            JOIN teams away_team ON away_team.id = m.away_team_id
+            WHERE (%s::text IS NULL OR m.competition = %s::text)
+              AND (%s::bool = FALSE OR (m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL))
+            ORDER BY m.match_date DESC, m.id DESC
+            """,
+            (comp_code, comp_code, completed_only),
+        )
+        rows = cur.fetchall()
+
+    matches = []
+    for row in rows:
+        total_goals, winner, btts = _compute_match_derived_fields(row[9], row[10])
+        matches.append(
+            {
+                "date": row[0].strftime("%d.%m.%y"),
+                "competition": row[1],
+                "home_team": row[2],
+                "away_team": row[3],
+                "home_odds": float(row[4]),
+                "draw_odds": float(row[5]),
+                "away_odds": float(row[6]),
+                "home_rating": float(row[7]),
+                "away_rating": float(row[8]),
+                "home_goals": row[9],
+                "away_goals": row[10],
+                "total_goals": total_goals,
+                "winner": winner,
+                "btts?": btts,
+            }
+        )
+    return matches
+
+
+def matches_to_csv(matches: list[dict]) -> str:
+    headers = [
+        "Date",
+        "Competition",
+        "Home Team",
+        "Away Team",
+        "Home Goals",
+        "Away Goals",
+        "Total Goals",
+        "Winner",
+        "BTTS?",
+        "Home Odds",
+        "Draw Odds",
+        "Away Odds",
+        "Home Rating",
+        "Away Rating",
+    ]
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\r\n")
+    writer.writerow(headers)
+    for m in matches:
+        hg = m.get("home_goals")
+        ag = m.get("away_goals")
+        total_goals = m.get("total_goals")
+        winner = m.get("winner")
+        btts = m.get("btts?")
+        if total_goals is None or winner is None or btts is None:
+            calc_total, calc_winner, calc_btts = _compute_match_derived_fields(hg, ag)
+            if total_goals is None:
+                total_goals = calc_total
+            if winner is None:
+                winner = calc_winner
+            if btts is None:
+                btts = calc_btts
+
+        writer.writerow([
+            m.get("date", ""),
+            m.get("competition", ""),
+            m.get("home_team", ""),
+            m.get("away_team", ""),
+            hg if hg is not None else "",
+            ag if ag is not None else "",
+            total_goals if total_goals is not None else "",
+            winner or "",
+            btts or "",
+            f"{m['home_odds']:.2f}" if m.get("home_odds") is not None else "",
+            f"{m['draw_odds']:.2f}" if m.get("draw_odds") is not None else "",
+            f"{m['away_odds']:.2f}" if m.get("away_odds") is not None else "",
+            f"{m['home_rating']:.2f}" if m.get("home_rating") is not None else "",
+            f"{m['away_rating']:.2f}" if m.get("away_rating") is not None else "",
+        ])
+    return output.getvalue()
 
 
 def load_league_summary_stats(league_url: str, database_url: str | None = None) -> dict | None:

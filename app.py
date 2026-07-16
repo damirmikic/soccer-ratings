@@ -27,7 +27,9 @@ from soccer_ratings.db import (
     import_league_history,
     import_league_ratings,
     init_db,
+    load_all_history_matches,
     load_league_history_matches,
+    matches_to_csv,
     refresh_known_history,
 )
 from soccer_ratings.dashboard import DashboardBindError, run_dashboard
@@ -186,6 +188,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional Postgres connection URL. Defaults to DIRECT_DATABASE_URL, then DATABASE_URL.",
     )
 
+    export_history_parser = subparsers.add_parser(
+        "export-history",
+        aliases=["export-matches", "export-db-matches"],
+        help="Export historical results and odds from imported matches in Postgres to CSV or JSON.",
+    )
+    export_history_parser.add_argument(
+        "--league-url",
+        help="Optional league path or URL to export, for example /England/UK1/.",
+    )
+    export_history_parser.add_argument(
+        "--competition",
+        help="Optional competition code to export, for example UK1.",
+    )
+    export_history_parser.add_argument(
+        "--format",
+        default="csv",
+        choices=["csv", "json"],
+        help="Output format (default: csv).",
+    )
+    export_history_parser.add_argument(
+        "--database-url",
+        help="Optional Postgres connection URL. Defaults to DIRECT_DATABASE_URL, then DATABASE_URL.",
+    )
+
     backtest_parser = subparsers.add_parser(
         "backtest",
         help="Replay stored league history through the model and grade it against the market.",
@@ -323,6 +349,19 @@ def main() -> int:
         payload = import_all_history(args.database_url)
     elif args.command == "refresh-known-history":
         payload = refresh_known_history(args.database_url)
+    elif args.command in {"export-history", "export-matches", "export-db-matches"}:
+        if args.league_url:
+            matches = load_league_history_matches(args.league_url, args.database_url)
+        else:
+            matches = load_all_history_matches(args.database_url, competition=args.competition)
+        if args.format == "csv":
+            output_csv = matches_to_csv(matches)
+            if args.output:
+                args.output.write_text(output_csv, encoding="utf-8")
+            else:
+                print(output_csv, end="")
+            return 0
+        payload = {"match_count": len(matches), "matches": matches}
     elif args.command == "backtest":
         matches = load_league_history_matches(args.league_url, args.database_url)
         payload = run_league_backtest(

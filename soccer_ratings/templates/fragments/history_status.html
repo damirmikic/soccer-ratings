@@ -6,6 +6,11 @@
   Cached: {{ status.deduped_match_count }} deduped matches from {{ status.team_count }} teams ({{ status.raw_match_count }} raw).{% if imported %} Imported to DB.{% endif %}
 </div>
 <div class="history-cache-meta">{{ status.cache_path or "" }}</div>
+{% if status.db_match_count is defined %}
+<div class="history-cache-meta" style="margin-top: 4px;">
+  Database: {{ status.db_match_count }} imported matches stored in DB.
+</div>
+{% endif %}
 {% else %}
 <div class="history-cache-meta">No cached league history dataset for this league yet.</div>
 <div class="history-cache-meta"></div>

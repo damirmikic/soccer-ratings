@@ -166,6 +166,11 @@ async def history_build(request: Request) -> HTMLResponse:
     refresh = await _form_or_query(request, "refresh", "1")
     try:
         status = _svc(request).build_history_cache(league_url, refresh == "1")
+        try:
+            if isinstance(status, dict):
+                status["db_match_count"] = len(_svc(request).export_history_matches(league_url))
+        except Exception:
+            pass
         return _templates.TemplateResponse(
             request,
             "fragments/history_status.html",
@@ -184,6 +189,11 @@ async def history_import(request: Request) -> HTMLResponse:
     league_url = await _form_or_query(request, "league_url")
     try:
         status = _svc(request).import_history_to_db(league_url)
+        try:
+            if isinstance(status, dict):
+                status["db_match_count"] = len(_svc(request).export_history_matches(league_url))
+        except Exception:
+            pass
         return _templates.TemplateResponse(
             request,
             "fragments/history_status.html",

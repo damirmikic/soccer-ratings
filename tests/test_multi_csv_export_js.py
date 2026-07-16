@@ -38,6 +38,7 @@ class BuildMultiRowsCsvTests(unittest.TestCase):
             ["node", "-e", _NODE_HARNESS, "--", str(APP_JS_PATH), json.dumps(rows), league_url],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
