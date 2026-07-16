@@ -19,7 +19,7 @@ from .client import (
     league_code_from_url,
 )
 from .env import load_env_file
-from .tuning import DEFAULT_MIN_MATCHES, DEFAULT_WEIGHT_SCALES, summarize_league_sweeps, sweep_weight_scales
+from .tuning import DEFAULT_MIN_MATCHES, DEFAULT_WEIGHT_SCALES, summarize_league_sweeps, sweep_weight_scales, sweep_league_parameters
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 load_env_file()
@@ -116,6 +116,8 @@ def init_db(database_url: str | None = None) -> None:
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     with db_cursor(database_url, use_direct=False) as (conn, cur):
         cur.execute(schema_sql)
+        for col in ("elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale"):
+            cur.execute(f"ALTER TABLE leagues ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION;")
         conn.commit()
 
 
@@ -481,12 +483,11 @@ def run_calibration_sweep(
     weight_scales: tuple[float, ...] = DEFAULT_WEIGHT_SCALES,
     min_matches: int = DEFAULT_MIN_MATCHES,
     on_progress: Callable[[int, int, str], None] | None = None,
+    persist: bool = True,
 ) -> dict:
-    """Runs soccer_ratings.tuning's weight_scale sweep against every
-    imported league's stored history and rolls the per-league results up
-    into a single across-leagues recommendation. Read-only: this reports
-    what would have minimized Brier score, it never changes the live
-    model's weight_scale itself.
+    """Runs soccer_ratings.tuning's sweep_league_parameters sweep against every
+    imported league's stored history, persists the tuned parameters to the DB,
+    and rolls the per-league results up into a single across-leagues recommendation.
     """
     leagues = list_all_imported_leagues(database_url)
     total = len(leagues)
@@ -495,16 +496,26 @@ def run_calibration_sweep(
     for index, league in enumerate(leagues, start=1):
         league_path = league["league_path"]
         matches = load_league_history_matches(league_path, database_url)
-        sweep = sweep_weight_scales(matches, weight_scales=weight_scales, min_matches=min_matches)
-        default_result = next(
-            (result for result in sweep["results"] if result["weight_scale"] == 1.0), None
-        )
+        sweep = sweep_league_parameters(matches, weight_scales=weight_scales, min_matches=min_matches)
+
+        best = sweep.get("best")
+        if best and persist:
+            try:
+                update_league_tuning_parameters(league_path, best, database_url)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to save tuned parameters for %s (%s: %s)",
+                    league_path,
+                    type(exc).__name__,
+                    exc,
+                )
+
         league_sweeps.append(
             {
                 "league": league["league"],
                 "league_path": league_path,
                 "country": league["country"],
-                "default_avg_brier": default_result["avg_brier"] if default_result else None,
+                "default_avg_brier": sweep["default"]["avg_brier"] if sweep.get("default") else None,
                 **sweep,
             }
         )
@@ -514,13 +525,39 @@ def run_calibration_sweep(
     evaluated = [row for row in league_sweeps if row["best"] is not None]
     skipped = [row for row in league_sweeps if row["best"] is None]
 
+    summary = None
+    if evaluated:
+        # Roll up median weight scale for summary
+        best_scales = sorted(row["best"]["weight_scale"] for row in evaluated)
+        count = len(best_scales)
+        median_best_scale = (
+            best_scales[count // 2]
+            if count % 2 == 1
+            else (best_scales[count // 2 - 1] + best_scales[count // 2]) / 2.0
+        )
+
+        improvements = []
+        for row in evaluated:
+            if row["default"] and row["default"]["avg_brier"] is not None and row["best"]["avg_brier"] is not None:
+                improvements.append(row["default"]["avg_brier"] - row["best"]["avg_brier"])
+
+        avg_brier_improvement = sum(improvements) / len(improvements) if improvements else None
+
+        summary = {
+            "leagues_evaluated": count,
+            "median_best_weight_scale": round(median_best_scale, 3) if median_best_scale is not None else None,
+            "avg_brier_improvement_vs_default": (
+                round(avg_brier_improvement, 4) if avg_brier_improvement is not None else None
+            ),
+        }
+
     return {
         "leagues_considered": total,
         "leagues_evaluated": len(evaluated),
         "leagues_skipped": len(skipped),
         "leagues": evaluated,
         "skipped_leagues": skipped,
-        "summary": summarize_league_sweeps(league_sweeps),
+        "summary": summary,
     }
 
 
@@ -797,6 +834,62 @@ def load_country_leagues(country_url: str, database_url: str | None = None) -> l
             }
         )
     return results
+
+
+def load_league_tuning_parameters(
+    league_url: str,
+    database_url: str | None = None,
+) -> dict[str, float] | None:
+    path = _path_from_url(league_url)
+    with db_cursor(database_url, use_direct=False) as (_, cur):
+        cur.execute(
+            """
+            SELECT elo_divisor, draw_max, draw_divisor, draw_min, weight_scale
+            FROM leagues
+            WHERE league_path = %s
+            """,
+            (path,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        keys = ["elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale"]
+        params = {}
+        for key, val in zip(keys, row):
+            if val is not None:
+                params[key] = float(val)
+        return params
+
+
+def update_league_tuning_parameters(
+    league_url: str,
+    params: dict[str, float],
+    database_url: str | None = None,
+) -> None:
+    path = _path_from_url(league_url)
+    with db_cursor(database_url, use_direct=True) as (conn, cur):
+        cur.execute(
+            """
+            UPDATE leagues
+            SET elo_divisor = %s,
+                draw_max = %s,
+                draw_divisor = %s,
+                draw_min = %s,
+                weight_scale = %s,
+                updated_at = NOW()
+            WHERE league_path = %s
+            """,
+            (
+                params.get("elo_divisor"),
+                params.get("draw_max"),
+                params.get("draw_divisor"),
+                params.get("draw_min"),
+                params.get("weight_scale"),
+                path,
+            ),
+        )
+        conn.commit()
 
 
 def load_league_home_away_ratings(league_url: str, database_url: str | None = None) -> dict | None:

@@ -6,6 +6,7 @@ from soccer_ratings.tuning import (
     summarize_league_sweeps,
     sweep_weight_scales,
     walk_forward_predictions,
+    sweep_league_parameters,
 )
 
 
@@ -197,6 +198,29 @@ class SummarizeLeagueSweepsTests(unittest.TestCase):
     def test_avg_brier_improvement_none_when_default_scale_never_tested(self) -> None:
         summary = summarize_league_sweeps([make_league_sweep(2.0, best_brier=0.40, default_brier=None)])
         self.assertIsNone(summary["avg_brier_improvement_vs_default"])
+
+
+class SweepLeagueParametersTests(unittest.TestCase):
+    def test_sweep_league_parameters_skips_below_min_matches(self) -> None:
+        matches = draw_heavy_league(5)
+        result = sweep_league_parameters(matches, min_matches=10)
+        self.assertEqual(result["matches_available"], 5)
+        self.assertIsNone(result["best"])
+
+    def test_sweep_league_parameters_finds_best_set(self) -> None:
+        matches = draw_heavy_league(20)
+        result = sweep_league_parameters(
+            matches,
+            weight_scales=(0.5,),
+            elo_divisors=(400.0,),
+            draw_maxs=(0.20, 0.38),
+            draw_divisors=(500.0,),
+            draw_mins=(0.18,),
+            min_matches=10,
+        )
+        self.assertIsNotNone(result["best"])
+        self.assertEqual(result["best"]["draw_max"], 0.38)
+        self.assertIsNotNone(result["default"])
 
 
 if __name__ == "__main__":

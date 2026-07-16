@@ -7,7 +7,7 @@ from pathlib import Path
 
 from soccer_ratings.env import load_env_file
 from soccer_ratings.backtest import run_league_backtest
-from soccer_ratings.tuning import DEFAULT_WEIGHT_SCALES, sweep_weight_scales
+from soccer_ratings.tuning import DEFAULT_WEIGHT_SCALES, sweep_weight_scales, sweep_league_parameters
 from soccer_ratings.client import (
     DEFAULT_URL,
     build_and_cache_league_history,
@@ -31,6 +31,7 @@ from soccer_ratings.db import (
     load_league_history_matches,
     matches_to_csv,
     refresh_known_history,
+    update_league_tuning_parameters,
 )
 from soccer_ratings.dashboard import DashboardBindError, run_dashboard
 
@@ -268,6 +269,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--database-url",
         help="Optional Postgres connection URL. Defaults to DATABASE_URL.",
     )
+    tune_calibration_parser.add_argument(
+        "--persist",
+        action="store_true",
+        help="Save the best-performing tuning parameters to the database.",
+    )
 
     crawl_country_parser = subparsers.add_parser(
         "crawl-country",
@@ -371,11 +377,14 @@ def main() -> int:
         )
     elif args.command == "tune-calibration":
         matches = load_league_history_matches(args.league_url, args.database_url)
-        payload = sweep_weight_scales(
+        payload = sweep_league_parameters(
             matches,
             weight_scales=tuple(args.weight_scales),
             min_matches=args.min_matches,
         )
+        if args.persist and payload.get("best"):
+            update_league_tuning_parameters(args.league_url, payload["best"], args.database_url)
+            payload["persisted"] = True
     elif args.command == "crawl-country":
         payload = fetch_country_league_ratings(
             args.country_url,

@@ -38,6 +38,7 @@ def evaluate_match(
     match: dict,
     edge_threshold_percent: float = 5.0,
     stake: float = 1.0,
+    tuning_params: dict[str, float] | None = None,
 ) -> dict | None:
     """Score one completed historical match: model vs market.
 
@@ -63,7 +64,21 @@ def evaluate_match(
     if home_odds <= 0 or draw_odds <= 0 or away_odds <= 0:
         return None
 
-    model_probabilities = calculate_match_probabilities(float(home_rating), float(away_rating))
+    # Load tuning parameters
+    tuning_params = tuning_params or {}
+    elo_divisor = tuning_params.get("elo_divisor", 400.0)
+    draw_max = tuning_params.get("draw_max", 0.30)
+    draw_divisor = tuning_params.get("draw_divisor", 500.0)
+    draw_min = tuning_params.get("draw_min", 0.18)
+
+    model_probabilities = calculate_match_probabilities(
+        float(home_rating),
+        float(away_rating),
+        elo_divisor=elo_divisor,
+        draw_max=draw_max,
+        draw_divisor=draw_divisor,
+        draw_min=draw_min,
+    )
     market_probabilities, overround = implied_probabilities_from_odds(
         float(home_odds), float(draw_odds), float(away_odds)
     )
@@ -107,6 +122,7 @@ def run_league_backtest(
     matches: list[dict],
     edge_threshold_percent: float = 5.0,
     stake: float = 1.0,
+    tuning_params: dict[str, float] | None = None,
 ) -> dict:
     """Replay a league's stored match history through the model and grade it
     against both what actually happened and what the market priced in.
@@ -114,7 +130,12 @@ def run_league_backtest(
     evaluated = [
         row
         for row in (
-            evaluate_match(match, edge_threshold_percent=edge_threshold_percent, stake=stake)
+            evaluate_match(
+                match,
+                edge_threshold_percent=edge_threshold_percent,
+                stake=stake,
+                tuning_params=tuning_params,
+            )
             for match in matches
         )
         if row is not None

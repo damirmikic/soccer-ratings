@@ -1,6 +1,23 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 import math
+
+
+def parse_date(value) -> date | None:
+    if isinstance(value, date):
+        if isinstance(value, datetime):
+            return value.date()
+        return value
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    for fmt in ("%d.%m.%y", "%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def probability_to_decimal_odds(probability: float) -> float:
@@ -9,7 +26,14 @@ def probability_to_decimal_odds(probability: float) -> float:
     return round(1.0 / probability, 2)
 
 
-def calculate_match_probabilities(home_rating: float, away_rating: float) -> dict[str, float]:
+def calculate_match_probabilities(
+    home_rating: float,
+    away_rating: float,
+    elo_divisor: float = 400.0,
+    draw_max: float = 0.30,
+    draw_divisor: float = 500.0,
+    draw_min: float = 0.18,
+) -> dict[str, float]:
     """Convert a rating gap into 1X2 probabilities.
 
     Assumptions:
@@ -19,9 +43,12 @@ def calculate_match_probabilities(home_rating: float, away_rating: float) -> dic
     """
 
     rating_gap = home_rating - away_rating
-    win_share = 1.0 / (1.0 + math.pow(10.0, -rating_gap / 400.0))
-    draw_probability = 0.30 * math.exp(-abs(rating_gap) / 500.0)
-    draw_probability = min(0.30, max(0.18, draw_probability))
+    win_share = 1.0 / (1.0 + math.pow(10.0, -rating_gap / elo_divisor))
+    draw_probability = draw_max * math.exp(-abs(rating_gap) / draw_divisor)
+    
+    lower_bound = min(draw_min, draw_max)
+    upper_bound = max(draw_min, draw_max)
+    draw_probability = min(upper_bound, max(lower_bound, draw_probability))
 
     remaining = 1.0 - draw_probability
     home_probability = remaining * win_share
@@ -40,8 +67,22 @@ def build_odds_from_probabilities(probabilities: dict[str, float]) -> dict[str, 
     }
 
 
-def build_match_odds(home_rating: float, away_rating: float) -> dict[str, float]:
-    probabilities = calculate_match_probabilities(home_rating, away_rating)
+def build_match_odds(
+    home_rating: float,
+    away_rating: float,
+    elo_divisor: float = 400.0,
+    draw_max: float = 0.30,
+    draw_divisor: float = 500.0,
+    draw_min: float = 0.18,
+) -> dict[str, float]:
+    probabilities = calculate_match_probabilities(
+        home_rating,
+        away_rating,
+        elo_divisor=elo_divisor,
+        draw_max=draw_max,
+        draw_divisor=draw_divisor,
+        draw_min=draw_min,
+    )
     return build_odds_from_probabilities(probabilities)
 
 
@@ -56,9 +97,23 @@ def calculate_dnb_probabilities(probabilities: dict[str, float]) -> dict[str, fl
     }
 
 
-def build_dnb_odds(home_rating: float, away_rating: float) -> dict[str, float]:
+def build_dnb_odds(
+    home_rating: float,
+    away_rating: float,
+    elo_divisor: float = 400.0,
+    draw_max: float = 0.30,
+    draw_divisor: float = 500.0,
+    draw_min: float = 0.18,
+) -> dict[str, float]:
     dnb_probabilities = calculate_dnb_probabilities(
-        calculate_match_probabilities(home_rating, away_rating)
+        calculate_match_probabilities(
+            home_rating,
+            away_rating,
+            elo_divisor=elo_divisor,
+            draw_max=draw_max,
+            draw_divisor=draw_divisor,
+            draw_min=draw_min,
+        )
     )
     return build_odds_from_probabilities(dnb_probabilities)
 
@@ -154,6 +209,8 @@ def summarize_historical_match_context(
     historical_matches: list[dict],
     target_rating_gap: float,
     bandwidth: float = 120.0,
+    target_date: date | str | None = None,
+    decay_half_life_days: float = 182.5,
 ) -> dict[str, float] | None:
     completed_matches = [
         match
@@ -165,6 +222,8 @@ def summarize_historical_match_context(
     ]
     if not completed_matches:
         return None
+
+    target_dt = parse_date(target_date)
 
     weighted_draws = 0.0
     weighted_home_non_draw = 0.0
@@ -180,6 +239,15 @@ def summarize_historical_match_context(
         away_goals = int(match["away_goals"])
         rating_gap = float(match["home_rating"]) - float(match["away_rating"])
         weight = math.exp(-abs(rating_gap - target_rating_gap) / bandwidth)
+
+        # Apply recency decay if both dates are available
+        match_date = match.get("date")
+        match_dt = parse_date(match_date)
+        if target_dt and match_dt:
+            age_days = (target_dt - match_dt).days
+            if age_days > 0:
+                decay_factor = math.pow(2.0, -age_days / decay_half_life_days)
+                weight *= decay_factor
 
         if abs(rating_gap - target_rating_gap) <= bandwidth:
             local_match_count += 1

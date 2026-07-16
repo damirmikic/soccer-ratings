@@ -13,6 +13,11 @@ CREATE TABLE IF NOT EXISTS leagues (
     name TEXT NOT NULL,
     league_path TEXT NOT NULL UNIQUE,
     latest_rating DOUBLE PRECISION,
+    elo_divisor DOUBLE PRECISION,
+    draw_max DOUBLE PRECISION,
+    draw_divisor DOUBLE PRECISION,
+    draw_min DOUBLE PRECISION,
+    weight_scale DOUBLE PRECISION,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

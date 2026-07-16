@@ -314,23 +314,46 @@ def compare_teams_from_ratings(
     away_team: str,
     margin_percent: float = 0.0,
     historical_matches: list[dict] | None = None,
+    tuning_params: dict[str, float] | None = None,
 ) -> dict:
     home_entry = _find_team_rating(home_ratings, home_team)
     away_entry = _find_team_rating(away_ratings, away_team)
 
     home_rating = float(home_entry["rating"])
     away_rating = float(away_entry["rating"])
-    base_probabilities = calculate_match_probabilities(home_rating, away_rating)
+
+    # Load tuning parameters
+    tuning_params = tuning_params or {}
+    elo_divisor = tuning_params.get("elo_divisor", 400.0)
+    draw_max = tuning_params.get("draw_max", 0.30)
+    draw_divisor = tuning_params.get("draw_divisor", 500.0)
+    draw_min = tuning_params.get("draw_min", 0.18)
+    weight_scale = tuning_params.get("weight_scale", 1.0)
+    decay_half_life_days = tuning_params.get("decay_half_life_days", 182.5)
+
+    base_probabilities = calculate_match_probabilities(
+        home_rating,
+        away_rating,
+        elo_divisor=elo_divisor,
+        draw_max=draw_max,
+        draw_divisor=draw_divisor,
+        draw_min=draw_min,
+    )
     historical_context = summarize_historical_match_context(
         historical_matches or [],
         target_rating_gap=home_rating - away_rating,
+        decay_half_life_days=decay_half_life_days,
     )
     team_goal_context = summarize_team_goal_context(
         historical_matches or [],
         home_team=home_team,
         away_team=away_team,
     )
-    probabilities = calibrate_probabilities_with_history(base_probabilities, historical_context)
+    probabilities = calibrate_probabilities_with_history(
+        base_probabilities,
+        historical_context,
+        weight_scale=weight_scale,
+    )
     dnb_probabilities = calculate_dnb_probabilities(probabilities)
     odds = build_odds_from_probabilities(probabilities)
     dnb_odds = build_odds_from_probabilities(dnb_probabilities)
@@ -373,7 +396,14 @@ def compare_teams_from_ratings(
         "margin_percent": round(max(0.0, margin_percent), 2),
         "model": "history-calibrated" if historical_context else "ratings-only",
         "base_probabilities": base_probabilities,
-        "base_odds": build_match_odds(home_rating, away_rating),
+        "base_odds": build_match_odds(
+            home_rating,
+            away_rating,
+            elo_divisor=elo_divisor,
+            draw_max=draw_max,
+            draw_divisor=draw_divisor,
+            draw_min=draw_min,
+        ),
         "probabilities": probabilities,
         "odds": odds,
         "dnb_probabilities": dnb_probabilities,

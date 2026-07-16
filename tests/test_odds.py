@@ -269,6 +269,25 @@ class HistoricalCalibrationTests(unittest.TestCase):
         self.assertGreater(context["draw_rate"], 0.0)
         self.assertGreater(context["expected_total_goals"], 0.0)
 
+    def test_summarize_historical_match_context_applies_recency_decay(self) -> None:
+        matches = [
+            {"home_rating": 2100.0, "away_rating": 2000.0, "home_goals": 1, "away_goals": 1, "date": "20.06.26"},
+            {"home_rating": 2100.0, "away_rating": 2000.0, "home_goals": 2, "away_goals": 0, "date": "10.12.25"},
+        ]
+        context_no_decay = summarize_historical_match_context(
+            matches,
+            target_rating_gap=100.0,
+        )
+        context_with_decay = summarize_historical_match_context(
+            matches,
+            target_rating_gap=100.0,
+            target_date="30.06.26",
+            decay_half_life_days=182.5,
+        )
+        self.assertIsNotNone(context_no_decay)
+        self.assertIsNotNone(context_with_decay)
+        self.assertGreater(context_with_decay["draw_rate"], context_no_decay["draw_rate"])
+
     def test_calibrate_probabilities_with_history_raises_draw_probability_when_history_is_draw_heavy(self) -> None:
         base_probabilities = {"home": 0.5, "draw": 0.22, "away": 0.28}
         historical_context = {

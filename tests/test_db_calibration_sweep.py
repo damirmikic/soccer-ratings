@@ -53,30 +53,42 @@ class ListAllImportedLeaguesTests(unittest.TestCase):
 
 
 def _fake_sweep(weight_scale_two_wins: bool):
-    """A stand-in sweep_weight_scales result: either the tuned scale beats
+    """A stand-in sweep_league_parameters result: either the tuned scale beats
     the default, or there wasn't enough data to evaluate at all."""
     if weight_scale_two_wins:
         return {
             "matches_available": 50,
             "min_matches_required": 30,
-            "results": [
-                {"weight_scale": 1.0, "avg_brier": 0.60, "matches_evaluated": 50},
-                {"weight_scale": 2.0, "avg_brier": 0.50, "matches_evaluated": 50},
-            ],
-            "best": {"weight_scale": 2.0, "avg_brier": 0.50, "matches_evaluated": 50},
-            "current_default_scale": 1.0,
+            "best": {
+                "weight_scale": 2.0,
+                "elo_divisor": 420.0,
+                "draw_max": 0.32,
+                "draw_divisor": 480.0,
+                "draw_min": 0.20,
+                "avg_brier": 0.50,
+                "matches_evaluated": 50,
+            },
+            "default": {
+                "weight_scale": 1.0,
+                "elo_divisor": 400.0,
+                "draw_max": 0.30,
+                "draw_divisor": 500.0,
+                "draw_min": 0.18,
+                "avg_brier": 0.60,
+                "matches_evaluated": 50,
+            },
         }
     return {
         "matches_available": 5,
         "min_matches_required": 30,
-        "results": [],
         "best": None,
+        "default": None,
     }
 
 
 class RunCalibrationSweepTests(unittest.TestCase):
     @mock.patch("soccer_ratings.db.load_league_history_matches")
-    @mock.patch("soccer_ratings.db.sweep_weight_scales")
+    @mock.patch("soccer_ratings.db.sweep_league_parameters")
     @mock.patch("soccer_ratings.db.list_all_imported_leagues")
     def test_splits_evaluated_and_skipped_leagues(
         self, mock_list_leagues, mock_sweep, mock_load_matches
@@ -102,7 +114,7 @@ class RunCalibrationSweepTests(unittest.TestCase):
         self.assertIsNotNone(result["summary"])
 
     @mock.patch("soccer_ratings.db.load_league_history_matches")
-    @mock.patch("soccer_ratings.db.sweep_weight_scales")
+    @mock.patch("soccer_ratings.db.sweep_league_parameters")
     @mock.patch("soccer_ratings.db.list_all_imported_leagues")
     def test_reports_progress_after_each_league(
         self, mock_list_leagues, mock_sweep, mock_load_matches
@@ -122,7 +134,7 @@ class RunCalibrationSweepTests(unittest.TestCase):
         self.assertEqual(progress_calls, [(1, 2, "Premier League"), (2, 2, "La Liga")])
 
     @mock.patch("soccer_ratings.db.load_league_history_matches")
-    @mock.patch("soccer_ratings.db.sweep_weight_scales")
+    @mock.patch("soccer_ratings.db.sweep_league_parameters")
     @mock.patch("soccer_ratings.db.list_all_imported_leagues")
     def test_does_nothing_when_no_leagues_imported_yet(
         self, mock_list_leagues, mock_sweep, mock_load_matches

@@ -4,6 +4,7 @@ from .backtest import implied_probabilities_from_odds, match_outcome
 from .odds import (
     calculate_match_probabilities,
     calibrate_probabilities_with_history,
+    parse_date,
     summarize_historical_match_context,
 )
 
@@ -11,6 +12,11 @@ OUTCOMES = ("home", "draw", "away")
 
 DEFAULT_WEIGHT_SCALES = (0.0, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
 DEFAULT_MIN_MATCHES = 30
+
+DEFAULT_ELO_DIVISORS = (300.0, 400.0, 500.0)
+DEFAULT_DRAW_MAXS = (0.24, 0.30, 0.36)
+DEFAULT_DRAW_DIVISORS = (400.0, 500.0, 600.0)
+DEFAULT_DRAW_MINS = (0.14, 0.18, 0.22)
 
 
 def _date_sort_key(value) -> str:
@@ -185,4 +191,134 @@ def summarize_league_sweeps(league_sweeps: list[dict]) -> dict | None:
         "avg_brier_improvement_vs_default": (
             round(avg_brier_improvement, 4) if avg_brier_improvement is not None else None
         ),
+    }
+
+
+def sweep_league_parameters(
+    matches: list[dict],
+    weight_scales: tuple[float, ...] = (0.0, 0.5, 1.0, 1.5),
+    elo_divisors: tuple[float, ...] = DEFAULT_ELO_DIVISORS,
+    draw_maxs: tuple[float, ...] = DEFAULT_DRAW_MAXS,
+    draw_divisors: tuple[float, ...] = DEFAULT_DRAW_DIVISORS,
+    draw_mins: tuple[float, ...] = DEFAULT_DRAW_MINS,
+    min_matches: int = DEFAULT_MIN_MATCHES,
+    decay_half_life_days: float = 182.5,
+) -> dict:
+    """Walk-forward calibrate a league over a multi-dimensional grid of
+    probabilities parameters and weight scales, returning the set that
+    minimizes the Brier score. Uses precomputation to optimize grid search.
+    """
+    completed = [
+        match
+        for match in matches
+        if match.get("home_goals") is not None and match.get("away_goals") is not None
+    ]
+    if len(completed) < min_matches:
+        return {
+            "matches_available": len(completed),
+            "min_matches_required": min_matches,
+            "results": [],
+            "best": None,
+            "default": None,
+        }
+
+    ordered = sorted(completed, key=lambda match: _date_sort_key(match.get("date")))
+
+    # Precompute historical contexts to avoid redundant calculation in the loop
+    precomputed = []
+    for index, match in enumerate(ordered):
+        home_rating = match.get("home_rating")
+        away_rating = match.get("away_rating")
+        home_goals = match.get("home_goals")
+        away_goals = match.get("away_goals")
+        if None in (home_rating, away_rating, home_goals, away_goals):
+            continue
+
+        prior_matches = ordered[:index]
+        rating_gap = float(home_rating) - float(away_rating)
+        target_date = parse_date(match.get("date"))
+
+        historical_context = summarize_historical_match_context(
+            prior_matches,
+            target_rating_gap=rating_gap,
+            target_date=target_date,
+            decay_half_life_days=decay_half_life_days,
+        )
+        outcome = match_outcome(int(home_goals), int(away_goals))
+
+        precomputed.append((float(home_rating), float(away_rating), historical_context, outcome))
+
+    import itertools
+    best_avg_brier = 999.0
+    best_params = None
+    baseline_brier = None
+
+    for ws, ed, d_max, d_div, d_min in itertools.product(
+        weight_scales, elo_divisors, draw_maxs, draw_divisors, draw_mins
+    ):
+        total_brier = 0.0
+        count = 0
+        for home_rating, away_rating, historical_context, outcome in precomputed:
+            base_probs = calculate_match_probabilities(
+                home_rating,
+                away_rating,
+                elo_divisor=ed,
+                draw_max=d_max,
+                draw_divisor=d_div,
+                draw_min=d_min,
+            )
+            probs = calibrate_probabilities_with_history(
+                base_probs,
+                historical_context,
+                weight_scale=ws,
+            )
+            total_brier += _brier_score(probs, outcome)
+            count += 1
+
+        if count > 0:
+            avg_brier = total_brier / count
+            if avg_brier < best_avg_brier:
+                best_avg_brier = avg_brier
+                best_params = {
+                    "weight_scale": ws,
+                    "elo_divisor": ed,
+                    "draw_max": d_max,
+                    "draw_divisor": d_div,
+                    "draw_min": d_min,
+                }
+
+            # Capture default baseline if present in the grid
+            if (
+                abs(ws - 1.0) < 1e-5
+                and abs(ed - 400.0) < 1e-5
+                and abs(d_max - 0.30) < 1e-5
+                and abs(d_div - 500.0) < 1e-5
+                and abs(d_min - 0.18) < 1e-5
+            ):
+                baseline_brier = avg_brier
+
+    # If baseline default parameters weren't explicitly in the grid, calculate it now
+    if baseline_brier is None and precomputed:
+        total_brier = 0.0
+        for home_rating, away_rating, historical_context, outcome in precomputed:
+            base_probs = calculate_match_probabilities(home_rating, away_rating)
+            probs = calibrate_probabilities_with_history(base_probs, historical_context, weight_scale=1.0)
+            total_brier += _brier_score(probs, outcome)
+        baseline_brier = total_brier / len(precomputed)
+
+    return {
+        "matches_available": len(completed),
+        "min_matches_required": min_matches,
+        "best": {
+            **best_params,
+            "avg_brier": round(best_avg_brier, 4) if best_avg_brier < 999.0 else None,
+        } if best_params else None,
+        "default": {
+            "weight_scale": 1.0,
+            "elo_divisor": 400.0,
+            "draw_max": 0.30,
+            "draw_divisor": 500.0,
+            "draw_min": 0.18,
+            "avg_brier": round(baseline_brier, 4) if baseline_brier is not None else None,
+        },
     }

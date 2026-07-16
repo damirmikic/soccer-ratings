@@ -14,7 +14,12 @@ from .client import (
     load_cached_league_history,
     summarize_league_stats,
 )
-from .db import load_all_history_matches, load_league_history_matches, matches_to_csv
+from .db import (
+    load_all_history_matches,
+    load_league_history_matches,
+    load_league_tuning_parameters,
+    matches_to_csv,
+)
 from .db import (
     import_country_history as import_country_history_to_db,
     import_league_history as import_league_history_to_db,
@@ -216,6 +221,17 @@ class DashboardServices:
                 if historical_matches:
                     history_source = "cache"
 
+        tuning_params = None
+        try:
+            tuning_params = load_league_tuning_parameters(league_url)
+        except Exception as exc:
+            logger.warning(
+                "DB lookup failed for tuning parameters in %s (%s: %s)",
+                league_url,
+                type(exc).__name__,
+                exc,
+            )
+
         comparison = compare_teams_from_ratings(
             ratings["home"],
             ratings["away"],
@@ -223,6 +239,7 @@ class DashboardServices:
             away_team=away_team,
             margin_percent=margin_percent,
             historical_matches=historical_matches,
+            tuning_params=tuning_params,
         )
         comparison["history_source"] = history_source
         return comparison
@@ -258,10 +275,22 @@ class DashboardServices:
                 if historical_matches:
                     history_source = "cache"
 
+        tuning_params = None
+        try:
+            tuning_params = load_league_tuning_parameters(league_url)
+        except Exception as exc:
+            logger.warning(
+                "DB lookup failed for tuning parameters in %s (%s: %s)",
+                league_url,
+                type(exc).__name__,
+                exc,
+            )
+
         result = run_league_backtest(
             historical_matches,
             edge_threshold_percent=edge_threshold_percent,
             stake=stake,
+            tuning_params=tuning_params,
         )
         result["league_url"] = league_url
         result["history_source"] = history_source
