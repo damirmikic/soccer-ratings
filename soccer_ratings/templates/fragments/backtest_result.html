@@ -1,4 +1,13 @@
 {% if b.matches_evaluated %}
+<div class="history-cache-meta" style="display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-bottom:10px;">
+  <button type="button" id="backtest-copy">Copy Results</button>
+  <button type="button" id="backtest-export-csv">Export CSV</button>
+  <span id="backtest-action-feedback" class="market-meta"></span>
+</div>
+<script type="application/json" id="backtest-data">
+  {{ b | tojson }}
+</script>
+
 <div class="league-stats" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
   <div class="league-stat">
     <strong>Matches Backtested</strong>
