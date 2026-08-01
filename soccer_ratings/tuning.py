@@ -17,6 +17,7 @@ DEFAULT_ELO_DIVISORS = (300.0, 400.0, 500.0)
 DEFAULT_DRAW_MAXS = (0.24, 0.30, 0.36)
 DEFAULT_DRAW_DIVISORS = (400.0, 500.0, 600.0)
 DEFAULT_DRAW_MINS = (0.14, 0.18, 0.22)
+DEFAULT_HOME_ADVANTAGES = (0.0, 60.0, 100.0)
 
 
 def _date_sort_key(value) -> str:
@@ -201,6 +202,7 @@ def sweep_league_parameters(
     draw_maxs: tuple[float, ...] = DEFAULT_DRAW_MAXS,
     draw_divisors: tuple[float, ...] = DEFAULT_DRAW_DIVISORS,
     draw_mins: tuple[float, ...] = DEFAULT_DRAW_MINS,
+    home_advantages: tuple[float, ...] = DEFAULT_HOME_ADVANTAGES,
     min_matches: int = DEFAULT_MIN_MATCHES,
     decay_half_life_days: float = 182.5,
 ) -> dict:
@@ -253,8 +255,8 @@ def sweep_league_parameters(
     best_params = None
     baseline_brier = None
 
-    for ws, ed, d_max, d_div, d_min in itertools.product(
-        weight_scales, elo_divisors, draw_maxs, draw_divisors, draw_mins
+    for ws, ed, d_max, d_div, d_min, ha in itertools.product(
+        weight_scales, elo_divisors, draw_maxs, draw_divisors, draw_mins, home_advantages
     ):
         total_brier = 0.0
         count = 0
@@ -266,6 +268,7 @@ def sweep_league_parameters(
                 draw_max=d_max,
                 draw_divisor=d_div,
                 draw_min=d_min,
+                home_advantage=ha,
             )
             probs = calibrate_probabilities_with_history(
                 base_probs,
@@ -285,6 +288,7 @@ def sweep_league_parameters(
                     "draw_max": d_max,
                     "draw_divisor": d_div,
                     "draw_min": d_min,
+                    "home_advantage": ha,
                 }
 
             # Capture default baseline if present in the grid
@@ -294,6 +298,7 @@ def sweep_league_parameters(
                 and abs(d_max - 0.30) < 1e-5
                 and abs(d_div - 500.0) < 1e-5
                 and abs(d_min - 0.18) < 1e-5
+                and abs(ha - 0.0) < 1e-5
             ):
                 baseline_brier = avg_brier
 
@@ -319,6 +324,7 @@ def sweep_league_parameters(
             "draw_max": 0.30,
             "draw_divisor": 500.0,
             "draw_min": 0.18,
+            "home_advantage": 0.0,
             "avg_brier": round(baseline_brier, 4) if baseline_brier is not None else None,
         },
     }

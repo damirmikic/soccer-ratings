@@ -57,7 +57,7 @@ class ModelAccuracySummaryTests(unittest.TestCase):
         mock_calc.return_value = {"home": 0.6, "draw": 0.2, "away": 0.2}
 
         match_rows = [
-            (1500.0, 1400.0, 3, 1, 400.0, 0.3, 500.0, 0.18),
+            (1500.0, 1400.0, 3, 1, 400.0, 0.3, 500.0, 0.18, 0.0),
         ]
         tuned_rows = [
             ("League X", "Country Y", "/league/x", 1.5, 400.0),
