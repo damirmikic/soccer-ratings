@@ -66,13 +66,64 @@
       {% if b.roi_percent is not none %}{{ "%.1f"|format(b.roi_percent) }}%{% else %}-{% endif %}
     </span>
   </div>
+  <div class="summary-card">
+    <strong>ROI Trustworthy?</strong>
+    <span class="{% if b.roi_trustworthy %}is-positive{% else %}is-negative{% endif %}">{{ "Yes" if b.roi_trustworthy else "No" }}</span>
+  </div>
 </div>
 
-<div class="market-meta" style="margin-bottom:10px;">
-  Edge &ge; {{ "%.1f"|format(b.edge_threshold_percent) }}% flags a value bet &middot;
-  {{ b.value_bet_matches }} of {{ b.matches_evaluated }} matches had at least one &middot;
-  staked {{ "%.2f"|format(b.total_staked) }}, profit {{ "%.2f"|format(b.total_profit) }} units.
+{% if b.roi_caveats %}
+<div class="market-meta" style="margin-bottom:10px; border-left: 3px solid var(--is-negative-color, #c0392b); padding-left:8px;">
+  <strong>Before trusting this ROI:</strong>
+  <ul style="margin:4px 0 0 18px; padding:0;">
+    {% for caveat in b.roi_caveats %}
+    <li>{{ caveat }}</li>
+    {% endfor %}
+  </ul>
 </div>
+{% endif %}
+
+<div class="market-meta" style="margin-bottom:10px;">
+  Relative edge &ge; {{ "%.1f"|format(b.edge_threshold_percent) }}% (against the raw, vigged price actually on
+  offer) flags a value bet &middot; {{ b.value_bet_matches }} of {{ b.matches_evaluated }} matches had at least
+  one &middot; staked {{ "%.2f"|format(b.total_staked) }}, profit {{ "%.2f"|format(b.total_profit) }} units.
+</div>
+
+{% if b.value_bets_by_side %}
+<div class="table-wrap" style="margin-bottom:18px;">
+  <table>
+    <thead>
+      <tr>
+        <th>Side</th>
+        <th>Bets</th>
+        <th>Hit Rate</th>
+        <th>Staked</th>
+        <th>Profit</th>
+        <th>ROI</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for side in ["home", "draw", "away"] %}
+      {% set s = b.value_bets_by_side[side] %}
+      <tr>
+        <td style="text-transform:capitalize;">{{ side }}</td>
+        <td>{{ s.count }}</td>
+        <td>{% if s.hit_rate_percent is not none %}{{ "%.1f"|format(s.hit_rate_percent) }}%{% else %}-{% endif %}</td>
+        <td>{{ "%.2f"|format(s.staked) }}</td>
+        <td>{{ "%.2f"|format(s.profit) }}</td>
+        <td class="{% if s.roi_percent and s.roi_percent > 0 %}is-positive{% elif s.roi_percent and s.roi_percent < 0 %}is-negative{% endif %}">
+          {% if s.roi_percent is not none %}{{ "%.1f"|format(s.roi_percent) }}%{% else %}-{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="market-meta" style="margin-bottom:18px;">
+  Value bets broken down by outcome side — a lopsided book (almost all bets on one side) means the ROI above is
+  more likely measuring a systematic model bias toward that side than real per-match mispricing.
+</div>
+{% endif %}
 
 <div class="table-wrap" style="max-height:280px; margin-bottom:18px;">
   <table>
@@ -110,13 +161,13 @@
       </tr>
       <tr>
         <th class="col-num col-group-1">Model</th>
-        <th class="col-num col-group-1">Market</th>
+        <th class="col-num col-group-1">Price</th>
         <th class="col-edge col-group-1">Edge</th>
         <th class="col-num col-group-x">Model</th>
-        <th class="col-num col-group-x">Market</th>
+        <th class="col-num col-group-x">Price</th>
         <th class="col-edge col-group-x">Edge</th>
         <th class="col-num col-group-2">Model</th>
-        <th class="col-num col-group-2">Market</th>
+        <th class="col-num col-group-2">Price</th>
         <th class="col-edge col-group-2">Edge</th>
       </tr>
     </thead>
@@ -130,13 +181,13 @@
         <td class="col-match">{{ m.home_team }} vs {{ m.away_team }}</td>
         <td class="col-result">{{ m.result }}</td>
         <td class="col-num col-group-1">{{ "%.0f"|format(m.model_probabilities.home * 100) }}%</td>
-        <td class="col-num col-group-1">{{ "%.0f"|format(m.market_probabilities.home * 100) }}%</td>
+        <td class="col-num col-group-1">{{ "%.0f"|format(m.raw_implied_probabilities.home * 100) }}%</td>
         <td class="col-edge col-group-1 {% if 'home' in m.value_bets %}is-value-bet{% elif e1 > 0 %}edge-pos{% elif e1 < 0 %}edge-neg{% else %}edge-zero{% endif %}">{{ "%.1f"|format(e1) }}</td>
         <td class="col-num col-group-x">{{ "%.0f"|format(m.model_probabilities.draw * 100) }}%</td>
-        <td class="col-num col-group-x">{{ "%.0f"|format(m.market_probabilities.draw * 100) }}%</td>
+        <td class="col-num col-group-x">{{ "%.0f"|format(m.raw_implied_probabilities.draw * 100) }}%</td>
         <td class="col-edge col-group-x {% if 'draw' in m.value_bets %}is-value-bet{% elif ex > 0 %}edge-pos{% elif ex < 0 %}edge-neg{% else %}edge-zero{% endif %}">{{ "%.1f"|format(ex) }}</td>
         <td class="col-num col-group-2">{{ "%.0f"|format(m.model_probabilities.away * 100) }}%</td>
-        <td class="col-num col-group-2">{{ "%.0f"|format(m.market_probabilities.away * 100) }}%</td>
+        <td class="col-num col-group-2">{{ "%.0f"|format(m.raw_implied_probabilities.away * 100) }}%</td>
         <td class="col-edge col-group-2 {% if 'away' in m.value_bets %}is-value-bet{% elif e2 > 0 %}edge-pos{% elif e2 < 0 %}edge-neg{% else %}edge-zero{% endif %}">{{ "%.1f"|format(e2) }}</td>
       </tr>
       {% endfor %}

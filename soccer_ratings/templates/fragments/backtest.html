@@ -6,8 +6,8 @@
 <div id="backtest-form" class="matchup-controls">
   <input type="hidden" name="league_url" value="{{ b.league_url }}">
   <div class="control">
-    <label for="backtest-edge">Value edge threshold %</label>
-    <input id="backtest-edge" name="edge_threshold" type="number" min="0" step="0.5" value="{{ b.edge_threshold_percent }}"
+    <label for="backtest-edge">Value edge threshold (relative %)</label>
+    <input id="backtest-edge" name="edge_threshold" type="number" min="0" step="1" value="{{ b.edge_threshold_percent }}"
       hx-get="/fragments/backtest"
       hx-trigger="change delay:400ms"
       hx-target="#backtest-result"
@@ -37,8 +37,11 @@
   </div>
 </div>
 <div class="market-meta" style="margin:8px 0 14px;">
-  How much of the reported probability comes from the de-vigged market versus the ratings-only
-  model (0 = pure model, 1 = pure market) &mdash; this is what edges/value bets are computed from.
+  Market weight: how much of the reported probability comes from the de-vigged market versus the
+  ratings-only model (0 = pure model, 1 = pure market). Edge threshold: a <em>relative</em> edge
+  against the raw (vigged) price actually on offer &mdash; model_p / raw_implied_p &minus; 1 &mdash;
+  since that's what you'd actually pay, and a flat percentage-point gap means very different
+  things at a 10% price versus a 70% one.
   <span id="backtest-spinner" class="htmx-indicator">Recalculating&hellip;</span>
 </div>
 <div id="backtest-result">

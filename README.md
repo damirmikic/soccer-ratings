@@ -425,19 +425,34 @@ time the match was played. The `Backtest` tab on a league page (and
   calibration table ("when the model said ~40%, how often did that
   actually happen?") built from the blended probabilities.
 - **Market vs. model / value bets**: for each outcome where the blended
-  model's probability exceeds the market's by more than a configurable
-  edge threshold, a flat-stake bet is simulated against the actual
-  result, rolled up into total staked/profit, hit rate, and ROI.
+  model's probability exceeds a threshold, a flat-stake bet is simulated
+  against the actual result, rolled up into total staked/profit, hit
+  rate, and ROI. The edge is *relative* — `model_p / raw_implied_p - 1`
+  — and priced against the raw, vigged odds actually on offer (not the
+  de-vigged market probability), since the vig is money you'd really pay
+  and a flat percentage-point gap means very different things at a 10%
+  price versus a 70% one. The default threshold (`DEFAULT_EDGE_THRESHOLD_PERCENT`
+  in `soccer_ratings/backtest.py`, currently 10%) reflects that relative
+  scale, not the old absolute-percentage-point one.
+- **Value bets by side, and an ROI trustworthiness check**: value bets
+  are broken down per outcome (home/draw/away) with their own hit
+  rate/staked/profit/ROI, because a book that's ~all bets on one side is
+  a sign the "edge" is a systematic model bias rather than real per-match
+  mispricing. `roi_trustworthy` is only true when bets are reasonably
+  balanced across sides (no side above `MAX_TRUSTWORTHY_SIDE_SHARE`, 60%,
+  of all value bets) *and* the blended model's Brier score beats the
+  market's (`beats_market`) — `roi_caveats` explains which check(s)
+  failed when it's false.
 
 Adjust the edge threshold, stake, and market weight inline on the tab
 (HTMX re-runs the backtest without a full page reload) or via the API/CLI:
 
 ```bash
-python3 app.py backtest --league-url /England/UK1/ --edge-threshold 5 --stake 1 --market-weight 0.7
+python3 app.py backtest --league-url /England/UK1/ --edge-threshold 10 --stake 1 --market-weight 0.7
 ```
 
 ```
-GET /api/backtest?league_url=/England/UK1/&edge_threshold=5&stake=1&market_weight=0.7
+GET /api/backtest?league_url=/England/UK1/&edge_threshold=10&stake=1&market_weight=0.7
 ```
 
 Leagues with no imported history yet show an empty state — run

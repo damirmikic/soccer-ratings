@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
+from ..backtest import DEFAULT_EDGE_THRESHOLD_PERCENT
 from ..odds import DEFAULT_MARKET_WEIGHT
 from ..services import DashboardServices
 
@@ -17,7 +18,7 @@ def _svc(request: Request) -> DashboardServices:
 def backtest(
     request: Request,
     league_url: str = Query(...),
-    edge_threshold: float = Query(5.0),
+    edge_threshold: float = Query(DEFAULT_EDGE_THRESHOLD_PERCENT),
     stake: float = Query(1.0),
     market_weight: float = Query(DEFAULT_MARKET_WEIGHT),
 ) -> JSONResponse:

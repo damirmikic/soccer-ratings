@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 
 
-from .backtest import run_league_backtest
+from .backtest import DEFAULT_EDGE_THRESHOLD_PERCENT, run_league_backtest
 from .cache import TTLCache
 from .odds import DEFAULT_MARKET_WEIGHT
 from .client import (
@@ -256,7 +256,7 @@ class DashboardServices:
     def get_backtest(
         self,
         league_url: str,
-        edge_threshold_percent: float = 5.0,
+        edge_threshold_percent: float = DEFAULT_EDGE_THRESHOLD_PERCENT,
         stake: float = 1.0,
         market_weight: float = DEFAULT_MARKET_WEIGHT,
     ) -> dict:

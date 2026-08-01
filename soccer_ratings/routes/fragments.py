@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from ..backtest import DEFAULT_EDGE_THRESHOLD_PERCENT
 from ..odds import DEFAULT_MARKET_WEIGHT
 from ..security import require_admin
 from ..services import DashboardServices
@@ -145,7 +146,7 @@ def compare(
 def backtest(
     request: Request,
     league_url: str = Query(...),
-    edge_threshold: float = Query(5.0),
+    edge_threshold: float = Query(DEFAULT_EDGE_THRESHOLD_PERCENT),
     stake: float = Query(1.0),
     market_weight: float = Query(DEFAULT_MARKET_WEIGHT),
 ) -> HTMLResponse:
