@@ -7,6 +7,7 @@ from pathlib import Path
 
 from soccer_ratings.env import load_env_file
 from soccer_ratings.backtest import run_league_backtest
+from soccer_ratings.odds import DEFAULT_MARKET_WEIGHT
 from soccer_ratings.tuning import DEFAULT_WEIGHT_SCALES, sweep_weight_scales, sweep_league_parameters
 from soccer_ratings.client import (
     DEFAULT_URL,
@@ -235,6 +236,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Flat stake per value bet, in units.",
     )
     backtest_parser.add_argument(
+        "--market-weight",
+        type=float,
+        default=DEFAULT_MARKET_WEIGHT,
+        help=(
+            "How much of the reported probability comes from the de-vigged market versus the "
+            "ratings-only model (0 = pure model, 1 = pure market); edges/value bets are computed "
+            "from this blend. Defaults to the market-anchored blend used elsewhere in the app."
+        ),
+    )
+    backtest_parser.add_argument(
         "--database-url",
         help="Optional Postgres connection URL. Defaults to DATABASE_URL.",
     )
@@ -374,6 +385,7 @@ def main() -> int:
             matches,
             edge_threshold_percent=args.edge_threshold,
             stake=args.stake,
+            market_weight=args.market_weight,
         )
     elif args.command == "tune-calibration":
         matches = load_league_history_matches(args.league_url, args.database_url)

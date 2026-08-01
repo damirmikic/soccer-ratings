@@ -410,23 +410,34 @@ time the match was played. The `Backtest` tab on a league page (and
   history-calibrated model used elsewhere in the dashboard, since
   calibrating on the full league history and then backtesting against
   that same history would leak future results into each prediction.
-- **Model accuracy**: average Brier score, pick accuracy (how often the
-  model's most-likely outcome was correct), and a calibration table
-  ("when the model said ~40%, how often did that actually happen?").
-- **Market vs. model / value bets**: for each outcome where the model's
-  probability exceeds the market's by more than a configurable edge
-  threshold, a flat-stake bet is simulated against the actual result,
-  rolled up into total staked/profit, hit rate, and ROI.
+- **Market-anchored calibration**: the raw model is blended toward the
+  de-vigged market (`blend_with_market` in `soccer_ratings/odds.py`,
+  `--market-weight`/`market_weight`, default 0.7 — i.e. 70% market/30%
+  model) before anything else is computed from it. The market is close to
+  well-calibrated on its own, so this blend corrects the model's
+  systematic biases and confidence errors while still letting the ratings
+  contribute whatever independent signal they have. The raw (unblended)
+  model is still reported separately for comparison.
+- **Model accuracy**: average Brier score for the blended model, the raw
+  model, and the market itself (so the market is scored as an explicit
+  baseline, not just implied by the edge numbers), pick accuracy (how
+  often the blended model's most-likely outcome was correct), and a
+  calibration table ("when the model said ~40%, how often did that
+  actually happen?") built from the blended probabilities.
+- **Market vs. model / value bets**: for each outcome where the blended
+  model's probability exceeds the market's by more than a configurable
+  edge threshold, a flat-stake bet is simulated against the actual
+  result, rolled up into total staked/profit, hit rate, and ROI.
 
-Adjust the edge threshold and stake inline on the tab (HTMX re-runs the
-backtest without a full page reload) or via the API/CLI:
+Adjust the edge threshold, stake, and market weight inline on the tab
+(HTMX re-runs the backtest without a full page reload) or via the API/CLI:
 
 ```bash
-python3 app.py backtest --league-url /England/UK1/ --edge-threshold 5 --stake 1
+python3 app.py backtest --league-url /England/UK1/ --edge-threshold 5 --stake 1 --market-weight 0.7
 ```
 
 ```
-GET /api/backtest?league_url=/England/UK1/&edge_threshold=5&stake=1
+GET /api/backtest?league_url=/England/UK1/&edge_threshold=5&stake=1&market_weight=0.7
 ```
 
 Leagues with no imported history yet show an empty state — run

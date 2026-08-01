@@ -6,6 +6,7 @@ from datetime import datetime
 
 from .backtest import run_league_backtest
 from .cache import TTLCache
+from .odds import DEFAULT_MARKET_WEIGHT
 from .client import (
     build_and_cache_league_history,
     compare_teams_from_ratings,
@@ -257,6 +258,7 @@ class DashboardServices:
         league_url: str,
         edge_threshold_percent: float = 5.0,
         stake: float = 1.0,
+        market_weight: float = DEFAULT_MARKET_WEIGHT,
     ) -> dict:
         historical_matches: list[dict] = []
         history_source = "none"
@@ -299,6 +301,7 @@ class DashboardServices:
             edge_threshold_percent=edge_threshold_percent,
             stake=stake,
             tuning_params=tuning_params,
+            market_weight=market_weight,
         )
         result["league_url"] = league_url
         result["history_source"] = history_source

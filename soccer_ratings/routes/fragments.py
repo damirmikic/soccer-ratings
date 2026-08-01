@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from ..odds import DEFAULT_MARKET_WEIGHT
 from ..security import require_admin
 from ..services import DashboardServices
 from ..timeutil import format_relative_time
@@ -146,6 +147,7 @@ def backtest(
     league_url: str = Query(...),
     edge_threshold: float = Query(5.0),
     stake: float = Query(1.0),
+    market_weight: float = Query(DEFAULT_MARKET_WEIGHT),
 ) -> HTMLResponse:
     svc = _svc(request)
     try:
@@ -153,6 +155,7 @@ def backtest(
             league_url=league_url,
             edge_threshold_percent=edge_threshold,
             stake=stake,
+            market_weight=market_weight,
         )
     except Exception:
         return HTMLResponse('<p class="market-meta">Could not run the backtest — check league selection.</p>')

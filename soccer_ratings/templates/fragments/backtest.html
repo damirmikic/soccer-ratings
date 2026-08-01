@@ -25,8 +25,20 @@
       hx-include="#backtest-form"
       hx-indicator="#backtest-spinner">
   </div>
+  <div class="control">
+    <label for="backtest-market-weight">Market weight (0&ndash;1)</label>
+    <input id="backtest-market-weight" name="market_weight" type="number" min="0" max="1" step="0.05" value="{{ b.market_weight }}"
+      hx-get="/fragments/backtest"
+      hx-trigger="change delay:400ms"
+      hx-target="#backtest-result"
+      hx-swap="innerHTML"
+      hx-include="#backtest-form"
+      hx-indicator="#backtest-spinner">
+  </div>
 </div>
 <div class="market-meta" style="margin:8px 0 14px;">
+  How much of the reported probability comes from the de-vigged market versus the ratings-only
+  model (0 = pure model, 1 = pure market) &mdash; this is what edges/value bets are computed from.
   <span id="backtest-spinner" class="htmx-indicator">Recalculating&hellip;</span>
 </div>
 <div id="backtest-result">
