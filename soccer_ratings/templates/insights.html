@@ -284,7 +284,8 @@
               <th>League</th>
               <th>Country</th>
               <th>Weight Scale</th>
-              <th>Elo Divisor</th>
+              <th>Home Advantage</th>
+              <th>Rho</th>
             </tr>
           </thead>
           <tbody>
@@ -293,7 +294,8 @@
               <td><strong>{{ league.name }}</strong></td>
               <td>{{ league.country }}</td>
               <td>{{ league.weight_scale }}</td>
-              <td>{{ league.elo_divisor | round(0) }}</td>
+              <td>{{ league.home_advantage | round(0) if league.home_advantage is not none else "-" }}</td>
+              <td>{{ league.rho if league.rho is not none else "-" }}</td>
             </tr>
             {% endfor %}
           </tbody>

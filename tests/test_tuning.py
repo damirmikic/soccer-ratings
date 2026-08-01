@@ -208,18 +208,19 @@ class SweepLeagueParametersTests(unittest.TestCase):
         self.assertIsNone(result["best"])
 
     def test_sweep_league_parameters_finds_best_set(self) -> None:
+        # All draws at an even rating gap: a more negative rho boosts the
+        # low-score diagonal (0-0, 1-1) relative to independent Poisson, so
+        # it should fit this dataset better than rho=0.0 (no correction).
         matches = draw_heavy_league(20)
         result = sweep_league_parameters(
             matches,
             weight_scales=(0.5,),
-            elo_divisors=(400.0,),
-            draw_maxs=(0.20, 0.38),
-            draw_divisors=(500.0,),
-            draw_mins=(0.18,),
+            home_advantages=(0.0,),
+            rhos=(0.0, -0.3),
             min_matches=10,
         )
         self.assertIsNotNone(result["best"])
-        self.assertEqual(result["best"]["draw_max"], 0.38)
+        self.assertEqual(result["best"]["rho"], -0.3)
         self.assertIsNotNone(result["default"])
 
 

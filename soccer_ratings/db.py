@@ -116,7 +116,11 @@ def init_db(database_url: str | None = None) -> None:
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     with db_cursor(database_url, use_direct=False) as (conn, cur):
         cur.execute(schema_sql)
-        for col in ("elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale", "home_advantage"):
+        # elo_divisor/draw_max/draw_divisor/draw_min are retired (the 1X2
+        # model moved to a Dixon-Coles score grid, see soccer_ratings.odds)
+        # but left in place rather than dropped, since existing rows may
+        # still carry tuned values from before the migration.
+        for col in ("elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale", "home_advantage", "rho"):
             cur.execute(f"ALTER TABLE leagues ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION;")
         conn.commit()
 
@@ -846,7 +850,7 @@ def load_league_tuning_parameters(
     with db_cursor(database_url, use_direct=False) as (_, cur):
         cur.execute(
             """
-            SELECT elo_divisor, draw_max, draw_divisor, draw_min, weight_scale, home_advantage
+            SELECT weight_scale, home_advantage, rho
             FROM leagues
             WHERE league_path = %s
             """,
@@ -856,7 +860,7 @@ def load_league_tuning_parameters(
         if not row:
             return None
 
-        keys = ["elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale", "home_advantage"]
+        keys = ["weight_scale", "home_advantage", "rho"]
         params = {}
         for key, val in zip(keys, row):
             if val is not None:
@@ -874,22 +878,16 @@ def update_league_tuning_parameters(
         cur.execute(
             """
             UPDATE leagues
-            SET elo_divisor = %s,
-                draw_max = %s,
-                draw_divisor = %s,
-                draw_min = %s,
-                weight_scale = %s,
+            SET weight_scale = %s,
                 home_advantage = %s,
+                rho = %s,
                 updated_at = NOW()
             WHERE league_path = %s
             """,
             (
-                params.get("elo_divisor"),
-                params.get("draw_max"),
-                params.get("draw_divisor"),
-                params.get("draw_min"),
                 params.get("weight_scale"),
                 params.get("home_advantage"),
+                params.get("rho"),
                 path,
             ),
         )
@@ -1154,16 +1152,13 @@ def get_model_accuracy_summary(database_url: str | None = None) -> dict:
     total_brier = 0.0
 
     query = """
-    SELECT 
+    SELECT
         m.home_rating,
         m.away_rating,
         m.home_goals,
         m.away_goals,
-        l.elo_divisor,
-        l.draw_max,
-        l.draw_divisor,
-        l.draw_min,
-        l.home_advantage
+        l.home_advantage,
+        l.rho
     FROM matches m
     JOIN teams t ON t.id = m.home_team_id
     LEFT JOIN leagues l ON (
@@ -1173,7 +1168,7 @@ def get_model_accuracy_summary(database_url: str | None = None) -> dict:
     WHERE m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
     """
 
-    from .odds import calculate_match_probabilities
+    from .odds import DEFAULT_RHO, calculate_match_probabilities
 
     def brier_score(probabilities: dict[str, float], outcome: str) -> float:
         return sum(
@@ -1192,20 +1187,14 @@ def get_model_accuracy_summary(database_url: str | None = None) -> dict:
                 away_goals = int(row[3])
 
                 # Use tuned parameters if available, else defaults
-                elo_divisor = float(row[4]) if row[4] is not None else 400.0
-                draw_max = float(row[5]) if row[5] is not None else 0.30
-                draw_divisor = float(row[6]) if row[6] is not None else 500.0
-                draw_min = float(row[7]) if row[7] is not None else 0.18
-                home_advantage = float(row[8]) if row[8] is not None else 0.0
+                home_advantage = float(row[4]) if row[4] is not None else 0.0
+                rho = float(row[5]) if row[5] is not None else DEFAULT_RHO
 
                 probs = calculate_match_probabilities(
                     home_rating,
                     away_rating,
-                    elo_divisor=elo_divisor,
-                    draw_max=draw_max,
-                    draw_divisor=draw_divisor,
-                    draw_min=draw_min,
                     home_advantage=home_advantage,
+                    rho=rho,
                 )
 
                 # Determine outcome
@@ -1235,7 +1224,7 @@ def get_model_accuracy_summary(database_url: str | None = None) -> dict:
         with db_cursor(database_url, use_direct=False) as (_, cur):
             cur.execute(
                 """
-                SELECT l.name, c.name, l.league_path, l.weight_scale, l.elo_divisor
+                SELECT l.name, c.name, l.league_path, l.weight_scale, l.home_advantage, l.rho
                 FROM leagues l
                 JOIN countries c ON c.id = l.country_id
                 WHERE l.weight_scale IS NOT NULL
@@ -1250,7 +1239,8 @@ def get_model_accuracy_summary(database_url: str | None = None) -> dict:
                         "country": row[1],
                         "league_path": row[2],
                         "weight_scale": row[3],
-                        "elo_divisor": row[4],
+                        "home_advantage": row[4],
+                        "rho": row[5],
                     }
                 )
     except Exception as exc:

@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import date, datetime
 import math
 
+DEFAULT_RHO = -0.13
+DEFAULT_MAX_GOALS = 10
+
 
 def parse_date(value) -> date | None:
     if isinstance(value, date):
@@ -26,42 +29,92 @@ def probability_to_decimal_odds(probability: float) -> float:
     return round(1.0 / probability, 2)
 
 
+def _base_expected_goals(
+    home_rating: float,
+    away_rating: float,
+    home_advantage: float = 0.0,
+) -> tuple[float, float]:
+    """Map a rating gap onto expected goals, ratings-only (no history blended
+    in). This is the same mapping estimate_expected_goals uses before any
+    historical/team-goal context is blended in, and it's what
+    calculate_match_probabilities builds its score grid from — sharing this
+    helper is what keeps the 1X2 market consistent with totals/BTTS/AH,
+    which are all derived from the same expected goals.
+    """
+    rating_gap = home_rating - away_rating + home_advantage
+    home_goals = min(3.2, max(0.45, 1.42 + (rating_gap / 550.0)))
+    away_goals = min(2.7, max(0.3, 1.08 - (rating_gap / 700.0)))
+    return home_goals, away_goals
+
+
+def _dixon_coles_tau(
+    home_goals: int,
+    away_goals: int,
+    lambda_home: float,
+    lambda_away: float,
+    rho: float,
+) -> float:
+    """Dixon-Coles (1997) low-score correction, reweighting the four cells
+    where independent home/away goals are known to misprice real matches
+    relative to the raw Poisson product.
+    """
+    if home_goals == 0 and away_goals == 0:
+        return 1.0 - (lambda_home * lambda_away * rho)
+    if home_goals == 0 and away_goals == 1:
+        return 1.0 + (lambda_home * rho)
+    if home_goals == 1 and away_goals == 0:
+        return 1.0 + (lambda_away * rho)
+    if home_goals == 1 and away_goals == 1:
+        return 1.0 - rho
+    return 1.0
+
+
 def calculate_match_probabilities(
     home_rating: float,
     away_rating: float,
-    elo_divisor: float = 400.0,
-    draw_max: float = 0.30,
-    draw_divisor: float = 500.0,
-    draw_min: float = 0.18,
     home_advantage: float = 0.0,
+    rho: float = DEFAULT_RHO,
+    max_goals: int = DEFAULT_MAX_GOALS,
 ) -> dict[str, float]:
-    """Convert a rating gap into 1X2 probabilities.
+    """Derive 1X2 probabilities from a bivariate-Poisson score grid.
 
-    Assumptions:
-    - Home team's home rating is compared against away team's away rating.
-    - home_advantage is added to the gap (in rating points, same scale as
-      elo_divisor) before the win split, correcting for the home-field edge
-      that isn't already baked into the ratings themselves.
-    - The win split uses an Elo-style logistic curve.
-    - Draw probability is highest when teams are evenly matched and shrinks as the gap grows.
+    Expected goals come from _base_expected_goals — the same ratings-only
+    mapping used for the totals/BTTS/Asian-handicap markets — so the
+    moneyline is priced consistently with those markets instead of off a
+    separate hand-tuned curve. Draws fall out of the grid itself (they're
+    highest when both expected-goal totals are low, and shrink as either
+    side's goal expectation grows), with the Dixon-Coles rho term applying
+    a further correction at the four low-score cells; soccer_ratings.tuning
+    fits rho per league against real history.
     """
+    lambda_home, lambda_away = _base_expected_goals(home_rating, away_rating, home_advantage)
 
-    rating_gap = home_rating - away_rating + home_advantage
-    win_share = 1.0 / (1.0 + math.pow(10.0, -rating_gap / elo_divisor))
-    draw_probability = draw_max * math.exp(-abs(rating_gap) / draw_divisor)
-    
-    lower_bound = min(draw_min, draw_max)
-    upper_bound = max(draw_min, draw_max)
-    draw_probability = min(upper_bound, max(lower_bound, draw_probability))
+    home_pmf = [_poisson_probability(goals, lambda_home) for goals in range(max_goals + 1)]
+    away_pmf = [_poisson_probability(goals, lambda_away) for goals in range(max_goals + 1)]
 
-    remaining = 1.0 - draw_probability
-    home_probability = remaining * win_share
-    away_probability = remaining * (1.0 - win_share)
+    home_probability = 0.0
+    draw_probability = 0.0
+    away_probability = 0.0
+    for home_goals, p_home in enumerate(home_pmf):
+        for away_goals, p_away in enumerate(away_pmf):
+            probability = p_home * p_away * _dixon_coles_tau(
+                home_goals, away_goals, lambda_home, lambda_away, rho
+            )
+            if home_goals > away_goals:
+                home_probability += probability
+            elif home_goals == away_goals:
+                draw_probability += probability
+            else:
+                away_probability += probability
+
+    total = home_probability + draw_probability + away_probability
+    if total <= 0:
+        return {"home": 0.0, "draw": 0.0, "away": 0.0}
 
     return {
-        "home": round(home_probability, 4),
-        "draw": round(draw_probability, 4),
-        "away": round(away_probability, 4),
+        "home": round(home_probability / total, 4),
+        "draw": round(draw_probability / total, 4),
+        "away": round(away_probability / total, 4),
     }
 
 
@@ -74,20 +127,14 @@ def build_odds_from_probabilities(probabilities: dict[str, float]) -> dict[str, 
 def build_match_odds(
     home_rating: float,
     away_rating: float,
-    elo_divisor: float = 400.0,
-    draw_max: float = 0.30,
-    draw_divisor: float = 500.0,
-    draw_min: float = 0.18,
     home_advantage: float = 0.0,
+    rho: float = DEFAULT_RHO,
 ) -> dict[str, float]:
     probabilities = calculate_match_probabilities(
         home_rating,
         away_rating,
-        elo_divisor=elo_divisor,
-        draw_max=draw_max,
-        draw_divisor=draw_divisor,
-        draw_min=draw_min,
         home_advantage=home_advantage,
+        rho=rho,
     )
     return build_odds_from_probabilities(probabilities)
 
@@ -106,19 +153,15 @@ def calculate_dnb_probabilities(probabilities: dict[str, float]) -> dict[str, fl
 def build_dnb_odds(
     home_rating: float,
     away_rating: float,
-    elo_divisor: float = 400.0,
-    draw_max: float = 0.30,
-    draw_divisor: float = 500.0,
-    draw_min: float = 0.18,
+    home_advantage: float = 0.0,
+    rho: float = DEFAULT_RHO,
 ) -> dict[str, float]:
     dnb_probabilities = calculate_dnb_probabilities(
         calculate_match_probabilities(
             home_rating,
             away_rating,
-            elo_divisor=elo_divisor,
-            draw_max=draw_max,
-            draw_divisor=draw_divisor,
-            draw_min=draw_min,
+            home_advantage=home_advantage,
+            rho=rho,
         )
     )
     return build_odds_from_probabilities(dnb_probabilities)
@@ -129,10 +172,9 @@ def estimate_expected_goals(
     away_rating: float,
     historical_context: dict[str, float] | None = None,
     team_goal_context: dict[str, float] | None = None,
+    home_advantage: float = 0.0,
 ) -> dict[str, float]:
-    rating_gap = home_rating - away_rating
-    base_home_goals = min(3.2, max(0.45, 1.42 + (rating_gap / 550.0)))
-    base_away_goals = min(2.7, max(0.3, 1.08 - (rating_gap / 700.0)))
+    base_home_goals, base_away_goals = _base_expected_goals(home_rating, away_rating, home_advantage)
 
     if historical_context:
         effective_sample_size = float(historical_context.get("effective_sample_size", 0.0))
