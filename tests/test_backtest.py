@@ -6,7 +6,7 @@ from soccer_ratings.backtest import (
     match_outcome,
     run_league_backtest,
 )
-from soccer_ratings.odds import calculate_match_probabilities
+from soccer_ratings.odds import DEFAULT_MARKET_WEIGHT, blend_with_market, calculate_match_probabilities
 
 
 def make_match(**overrides) -> dict:
@@ -62,9 +62,22 @@ class EvaluateMatchTests(unittest.TestCase):
         match = make_match()
         row = evaluate_match(match)
 
-        expected_probabilities = calculate_match_probabilities(2200.0, 2000.0)
-        self.assertEqual(row["model_probabilities"], expected_probabilities)
+        expected_raw_probabilities = calculate_match_probabilities(2200.0, 2000.0)
+        expected_market_probabilities, _ = implied_probabilities_from_odds(1.8, 3.6, 4.5)
+        expected_blended = blend_with_market(
+            expected_raw_probabilities, expected_market_probabilities, DEFAULT_MARKET_WEIGHT
+        )
+        self.assertEqual(row["raw_model_probabilities"], expected_raw_probabilities)
+        self.assertEqual(row["model_probabilities"], expected_blended)
         self.assertEqual(row["outcome"], "home")
+
+    def test_market_weight_zero_falls_back_to_raw_model(self) -> None:
+        match = make_match()
+        row = evaluate_match(match, market_weight=0.0)
+
+        expected_raw_probabilities = calculate_match_probabilities(2200.0, 2000.0)
+        self.assertEqual(row["model_probabilities"], expected_raw_probabilities)
+        self.assertEqual(row["brier"], row["raw_model_brier"])
 
     def test_missing_field_returns_none(self) -> None:
         match = make_match(home_goals=None, away_goals=None)
@@ -152,6 +165,27 @@ class RunLeagueBacktestTests(unittest.TestCase):
 
         self.assertEqual(len(result["matches"]), 2)
         self.assertEqual({row["home_team"] for row in result["matches"]}, {"A", "B"})
+
+    def test_reports_market_and_raw_model_brier_alongside_blended(self) -> None:
+        matches = [make_match(home_team="A"), make_match(home_team="B")]
+        result = run_league_backtest(matches)
+
+        self.assertIn("avg_raw_model_brier", result)
+        self.assertIn("avg_market_brier", result)
+        self.assertIn("beats_market", result)
+        self.assertEqual(result["market_weight"], DEFAULT_MARKET_WEIGHT)
+
+    def test_market_weight_zero_makes_blended_brier_match_raw_model_brier(self) -> None:
+        matches = [make_match(home_team="A"), make_match(home_team="B")]
+        result = run_league_backtest(matches, market_weight=0.0)
+
+        self.assertEqual(result["avg_brier"], result["avg_raw_model_brier"])
+
+    def test_market_weight_one_makes_blended_brier_match_market_brier(self) -> None:
+        matches = [make_match(home_team="A"), make_match(home_team="B")]
+        result = run_league_backtest(matches, market_weight=1.0)
+
+        self.assertEqual(result["avg_brier"], result["avg_market_brier"])
 
 
 if __name__ == "__main__":

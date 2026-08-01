@@ -27,6 +27,30 @@
   </div>
 </div>
 
+<div class="league-stats" style="grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top:10px;">
+  <div class="league-stat">
+    <strong>Raw Model Brier</strong>
+    <span>{{ "%.4f"|format(b.avg_raw_model_brier) if b.avg_raw_model_brier is not none else "-" }}</span>
+  </div>
+  <div class="league-stat">
+    <strong>Market Brier</strong>
+    <span>{{ "%.4f"|format(b.avg_market_brier) if b.avg_market_brier is not none else "-" }}</span>
+  </div>
+  <div class="league-stat">
+    <strong>Blended Model Beats Market?</strong>
+    <span class="{% if b.beats_market %}is-positive{% else %}is-negative{% endif %}">{{ "Yes" if b.beats_market else "No" }}</span>
+  </div>
+  <div class="league-stat">
+    <strong>Market Weight</strong>
+    <span>{{ b.market_weight }}</span>
+  </div>
+</div>
+<div class="market-meta" style="margin:8px 0;">
+  "Avg Brier Score" and the calibration/match tables below use the model blended {{ "%.0f"|format((b.market_weight or 0) * 100) }}%
+  toward the de-vigged market (raw ratings-only model shown separately as "Raw Model Brier") &mdash; edges and value bets are
+  computed from this blended view.
+</div>
+
 <div class="multi-summary" style="margin-bottom:18px;">
   <div class="summary-card">
     <strong>Value Bets Found</strong>

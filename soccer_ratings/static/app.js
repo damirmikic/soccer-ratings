@@ -530,7 +530,11 @@ function fmtBacktestValue(value) {
 function buildBacktestSummaryText(result) {
   const lines = ["Backtest Results"];
   lines.push(`Matches Backtested: ${result.matches_evaluated}`);
-  lines.push(`Avg Brier Score: ${fmtBacktestValue(result.avg_brier)}`);
+  lines.push(`Avg Brier Score (blended model): ${fmtBacktestValue(result.avg_brier)}`);
+  lines.push(`Avg Brier Score (raw model): ${fmtBacktestValue(result.avg_raw_model_brier)}`);
+  lines.push(`Avg Brier Score (market): ${fmtBacktestValue(result.avg_market_brier)}`);
+  lines.push(`Blended Model Beats Market: ${result.beats_market ? "Yes" : "No"}`);
+  lines.push(`Market Weight: ${result.market_weight != null ? result.market_weight : "-"}`);
   lines.push(`Pick Accuracy: ${result.pick_accuracy_percent != null ? result.pick_accuracy_percent.toFixed(1) + "%" : "-"}`);
   lines.push(`Value Bets Found: ${result.value_bet_count}`);
   lines.push(`Value Bet Hit Rate: ${result.hit_rate_percent != null ? result.hit_rate_percent.toFixed(1) + "%" : "-"}`);

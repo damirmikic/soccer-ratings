@@ -5,6 +5,9 @@ import math
 
 DEFAULT_RHO = -0.13
 DEFAULT_MAX_GOALS = 10
+DEFAULT_MARKET_WEIGHT = 0.7
+
+OUTCOMES = ("home", "draw", "away")
 
 
 def parse_date(value) -> date | None:
@@ -529,6 +532,34 @@ def calibrate_probabilities_with_history(
         "draw": round(draw_probability, 4),
         "away": round(max(0.0, away_probability), 4),
     }
+
+
+def blend_with_market(
+    model_probabilities: dict[str, float],
+    market_probabilities: dict[str, float],
+    market_weight: float = DEFAULT_MARKET_WEIGHT,
+) -> dict[str, float]:
+    """Anchor the model's probabilities to the de-vigged market.
+
+    market_weight is how much of the final probability comes from the
+    market (0.0 = pure model, 1.0 = pure market). The market is, empirically,
+    close to well-calibrated on its own — this blend uses it to correct
+    the model's systematic biases (e.g. underrating home teams, mispricing
+    draws) and confidence errors (favorites priced too low) without
+    discarding whatever independent signal the ratings still contribute.
+    soccer_ratings.backtest reports Brier scores for the raw model, the
+    market, and this blend side by side so the weight can be judged against
+    real outcomes rather than assumed.
+    """
+    bounded_weight = min(1.0, max(0.0, market_weight))
+    blended = {
+        key: _blend(model_probabilities.get(key, 0.0), market_probabilities.get(key, 0.0), bounded_weight)
+        for key in OUTCOMES
+    }
+    total = sum(blended.values())
+    if total <= 0:
+        return {key: 0.0 for key in OUTCOMES}
+    return {key: round(value / total, 4) for key, value in blended.items()}
 
 
 def apply_shin_margin(probabilities: dict[str, float], margin_percent: float) -> dict[str, object]:

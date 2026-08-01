@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .odds import DEFAULT_RHO, calculate_match_probabilities
+from .odds import DEFAULT_MARKET_WEIGHT, DEFAULT_RHO, blend_with_market, calculate_match_probabilities
 
 OUTCOMES = ("home", "draw", "away")
 
@@ -39,6 +39,7 @@ def evaluate_match(
     edge_threshold_percent: float = 5.0,
     stake: float = 1.0,
     tuning_params: dict[str, float] | None = None,
+    market_weight: float = DEFAULT_MARKET_WEIGHT,
 ) -> dict | None:
     """Score one completed historical match: model vs market.
 
@@ -47,6 +48,16 @@ def evaluate_match(
     plain ratings-only model (no historical calibration) so the backtest
     never leaks knowledge of other matches — including future ones — into
     a match's own prediction.
+
+    The raw ratings-only model is blended toward the de-vigged market
+    (blend_with_market, weighted market_weight toward the market) before
+    edges/value bets are derived from it — the market anchor corrects the
+    model's systematic biases and confidence errors, so what actually gets
+    bet is the corrected view, not the raw one. Both are reported (as
+    "model_probabilities"/"brier" for the corrected view and
+    "raw_model_probabilities"/"raw_model_brier" for the uncorrected one),
+    along with "market_brier", so the market can be scored as a baseline
+    alongside both.
 
     Returns None if the match is missing anything needed to score it
     (unplayed fixture, missing odds, etc).
@@ -69,7 +80,7 @@ def evaluate_match(
     home_advantage = tuning_params.get("home_advantage", 0.0)
     rho = tuning_params.get("rho", DEFAULT_RHO)
 
-    model_probabilities = calculate_match_probabilities(
+    raw_model_probabilities = calculate_match_probabilities(
         float(home_rating),
         float(away_rating),
         home_advantage=home_advantage,
@@ -78,6 +89,9 @@ def evaluate_match(
     market_probabilities, overround = implied_probabilities_from_odds(
         float(home_odds), float(draw_odds), float(away_odds)
     )
+    model_probabilities = blend_with_market(
+        raw_model_probabilities, market_probabilities, market_weight=market_weight
+    )
     outcome = match_outcome(int(home_goals), int(away_goals))
     market_odds = {"home": float(home_odds), "draw": float(draw_odds), "away": float(away_odds)}
 
@@ -85,9 +99,11 @@ def evaluate_match(
         key: round((model_probabilities[key] - market_probabilities[key]) * 100.0, 2)
         for key in OUTCOMES
     }
-    brier = sum(
-        (model_probabilities[key] - (1.0 if key == outcome else 0.0)) ** 2 for key in OUTCOMES
-    )
+
+    def _brier(probabilities: dict[str, float]) -> float:
+        return sum(
+            (probabilities[key] - (1.0 if key == outcome else 0.0)) ** 2 for key in OUTCOMES
+        )
 
     value_bets = [key for key in OUTCOMES if edges[key] >= edge_threshold_percent]
     staked = stake * len(value_bets)
@@ -103,11 +119,14 @@ def evaluate_match(
         "result": match.get("result"),
         "outcome": outcome,
         "model_probabilities": model_probabilities,
+        "raw_model_probabilities": raw_model_probabilities,
         "market_probabilities": {key: round(value, 4) for key, value in market_probabilities.items()},
         "market_odds": market_odds,
         "overround": round(overround, 4),
         "edges": edges,
-        "brier": round(brier, 4),
+        "brier": round(_brier(model_probabilities), 4),
+        "raw_model_brier": round(_brier(raw_model_probabilities), 4),
+        "market_brier": round(_brier(market_probabilities), 4),
         "value_bets": value_bets,
         "staked": round(staked, 2),
         "profit": round(profit, 2),
@@ -119,6 +138,7 @@ def run_league_backtest(
     edge_threshold_percent: float = 5.0,
     stake: float = 1.0,
     tuning_params: dict[str, float] | None = None,
+    market_weight: float = DEFAULT_MARKET_WEIGHT,
 ) -> dict:
     """Replay a league's stored match history through the model and grade it
     against both what actually happened and what the market priced in.
@@ -131,6 +151,7 @@ def run_league_backtest(
                 edge_threshold_percent=edge_threshold_percent,
                 stake=stake,
                 tuning_params=tuning_params,
+                market_weight=market_weight,
             )
             for match in matches
         )
@@ -142,9 +163,12 @@ def run_league_backtest(
             "matches_evaluated": 0,
             "edge_threshold_percent": round(edge_threshold_percent, 2),
             "stake": stake,
+            "market_weight": round(market_weight, 2),
         }
 
     avg_brier = sum(row["brier"] for row in evaluated) / len(evaluated)
+    avg_raw_model_brier = sum(row["raw_model_brier"] for row in evaluated) / len(evaluated)
+    avg_market_brier = sum(row["market_brier"] for row in evaluated) / len(evaluated)
     pick_hits = sum(
         1
         for row in evaluated
@@ -163,7 +187,11 @@ def run_league_backtest(
         "matches_evaluated": len(evaluated),
         "edge_threshold_percent": round(edge_threshold_percent, 2),
         "stake": stake,
+        "market_weight": round(market_weight, 2),
         "avg_brier": round(avg_brier, 4),
+        "avg_raw_model_brier": round(avg_raw_model_brier, 4),
+        "avg_market_brier": round(avg_market_brier, 4),
+        "beats_market": avg_brier < avg_market_brier,
         "pick_accuracy_percent": round(pick_hits / len(evaluated) * 100.0, 1),
         "calibration": _build_calibration_buckets(evaluated),
         "value_bet_matches": len(value_rows),
