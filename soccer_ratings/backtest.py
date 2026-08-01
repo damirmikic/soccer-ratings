@@ -70,6 +70,7 @@ def evaluate_match(
     draw_max = tuning_params.get("draw_max", 0.30)
     draw_divisor = tuning_params.get("draw_divisor", 500.0)
     draw_min = tuning_params.get("draw_min", 0.18)
+    home_advantage = tuning_params.get("home_advantage", 0.0)
 
     model_probabilities = calculate_match_probabilities(
         float(home_rating),
@@ -78,6 +79,7 @@ def evaluate_match(
         draw_max=draw_max,
         draw_divisor=draw_divisor,
         draw_min=draw_min,
+        home_advantage=home_advantage,
     )
     market_probabilities, overround = implied_probabilities_from_odds(
         float(home_odds), float(draw_odds), float(away_odds)

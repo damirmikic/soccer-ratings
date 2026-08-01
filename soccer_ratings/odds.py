@@ -33,16 +33,20 @@ def calculate_match_probabilities(
     draw_max: float = 0.30,
     draw_divisor: float = 500.0,
     draw_min: float = 0.18,
+    home_advantage: float = 0.0,
 ) -> dict[str, float]:
     """Convert a rating gap into 1X2 probabilities.
 
     Assumptions:
     - Home team's home rating is compared against away team's away rating.
+    - home_advantage is added to the gap (in rating points, same scale as
+      elo_divisor) before the win split, correcting for the home-field edge
+      that isn't already baked into the ratings themselves.
     - The win split uses an Elo-style logistic curve.
     - Draw probability is highest when teams are evenly matched and shrinks as the gap grows.
     """
 
-    rating_gap = home_rating - away_rating
+    rating_gap = home_rating - away_rating + home_advantage
     win_share = 1.0 / (1.0 + math.pow(10.0, -rating_gap / elo_divisor))
     draw_probability = draw_max * math.exp(-abs(rating_gap) / draw_divisor)
     
@@ -74,6 +78,7 @@ def build_match_odds(
     draw_max: float = 0.30,
     draw_divisor: float = 500.0,
     draw_min: float = 0.18,
+    home_advantage: float = 0.0,
 ) -> dict[str, float]:
     probabilities = calculate_match_probabilities(
         home_rating,
@@ -82,6 +87,7 @@ def build_match_odds(
         draw_max=draw_max,
         draw_divisor=draw_divisor,
         draw_min=draw_min,
+        home_advantage=home_advantage,
     )
     return build_odds_from_probabilities(probabilities)
 

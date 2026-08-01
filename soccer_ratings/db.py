@@ -116,7 +116,7 @@ def init_db(database_url: str | None = None) -> None:
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     with db_cursor(database_url, use_direct=False) as (conn, cur):
         cur.execute(schema_sql)
-        for col in ("elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale"):
+        for col in ("elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale", "home_advantage"):
             cur.execute(f"ALTER TABLE leagues ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION;")
         conn.commit()
 
@@ -846,7 +846,7 @@ def load_league_tuning_parameters(
     with db_cursor(database_url, use_direct=False) as (_, cur):
         cur.execute(
             """
-            SELECT elo_divisor, draw_max, draw_divisor, draw_min, weight_scale
+            SELECT elo_divisor, draw_max, draw_divisor, draw_min, weight_scale, home_advantage
             FROM leagues
             WHERE league_path = %s
             """,
@@ -856,7 +856,7 @@ def load_league_tuning_parameters(
         if not row:
             return None
 
-        keys = ["elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale"]
+        keys = ["elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale", "home_advantage"]
         params = {}
         for key, val in zip(keys, row):
             if val is not None:
@@ -879,6 +879,7 @@ def update_league_tuning_parameters(
                 draw_divisor = %s,
                 draw_min = %s,
                 weight_scale = %s,
+                home_advantage = %s,
                 updated_at = NOW()
             WHERE league_path = %s
             """,
@@ -888,6 +889,7 @@ def update_league_tuning_parameters(
                 params.get("draw_divisor"),
                 params.get("draw_min"),
                 params.get("weight_scale"),
+                params.get("home_advantage"),
                 path,
             ),
         )
@@ -1160,7 +1162,8 @@ def get_model_accuracy_summary(database_url: str | None = None) -> dict:
         l.elo_divisor,
         l.draw_max,
         l.draw_divisor,
-        l.draw_min
+        l.draw_min,
+        l.home_advantage
     FROM matches m
     JOIN teams t ON t.id = m.home_team_id
     LEFT JOIN leagues l ON (
@@ -1193,6 +1196,7 @@ def get_model_accuracy_summary(database_url: str | None = None) -> dict:
                 draw_max = float(row[5]) if row[5] is not None else 0.30
                 draw_divisor = float(row[6]) if row[6] is not None else 500.0
                 draw_min = float(row[7]) if row[7] is not None else 0.18
+                home_advantage = float(row[8]) if row[8] is not None else 0.0
 
                 probs = calculate_match_probabilities(
                     home_rating,
@@ -1201,6 +1205,7 @@ def get_model_accuracy_summary(database_url: str | None = None) -> dict:
                     draw_max=draw_max,
                     draw_divisor=draw_divisor,
                     draw_min=draw_min,
+                    home_advantage=home_advantage,
                 )
 
                 # Determine outcome

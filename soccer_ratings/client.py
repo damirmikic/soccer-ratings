@@ -332,6 +332,7 @@ def compare_teams_from_ratings(
     draw_max = tuning_params.get("draw_max", 0.30)
     draw_divisor = tuning_params.get("draw_divisor", 500.0)
     draw_min = tuning_params.get("draw_min", 0.18)
+    home_advantage = tuning_params.get("home_advantage", 0.0)
     weight_scale = tuning_params.get("weight_scale", 1.5)
     decay_half_life_days = tuning_params.get("decay_half_life_days", 182.5)
 
@@ -342,6 +343,7 @@ def compare_teams_from_ratings(
         draw_max=draw_max,
         draw_divisor=draw_divisor,
         draw_min=draw_min,
+        home_advantage=home_advantage,
     )
     historical_context = summarize_historical_match_context(
         historical_matches or [],
@@ -430,6 +432,7 @@ def compare_teams_from_ratings(
             draw_max=draw_max,
             draw_divisor=draw_divisor,
             draw_min=draw_min,
+            home_advantage=home_advantage,
         ),
         "probabilities": probabilities,
         "odds": odds,
