@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS leagues (
     draw_min DOUBLE PRECISION,
     weight_scale DOUBLE PRECISION,
     home_advantage DOUBLE PRECISION,
+    rho DOUBLE PRECISION,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

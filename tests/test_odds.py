@@ -32,11 +32,24 @@ from soccer_ratings.odds import (
 
 
 class OddsModelTests(unittest.TestCase):
-    def test_equal_ratings_produce_symmetric_home_and_away_probabilities(self) -> None:
+    def test_equal_ratings_still_favor_home_via_structural_home_advantage(self) -> None:
+        # The score grid is built from the same rating-to-goals mapping the
+        # totals/BTTS/AH markets use, which has a higher baseline home goal
+        # expectation than away (1.42 vs 1.08) even at a zero rating gap —
+        # this is what keeps 1X2 consistent with those markets instead of
+        # being symmetric on its own separate curve.
         probabilities = calculate_match_probabilities(2000.0, 2000.0)
 
-        self.assertEqual(probabilities["draw"], 0.3)
-        self.assertAlmostEqual(probabilities["home"], probabilities["away"], places=4)
+        self.assertAlmostEqual(sum(probabilities.values()), 1.0, places=4)
+        self.assertGreater(probabilities["home"], probabilities["away"])
+        self.assertGreater(probabilities["draw"], 0.0)
+
+    def test_reversing_the_rating_gap_reverses_the_favorite(self) -> None:
+        stronger_home = calculate_match_probabilities(2200.0, 2000.0)
+        stronger_away = calculate_match_probabilities(2000.0, 2200.0)
+
+        self.assertGreater(stronger_home["home"], stronger_home["away"])
+        self.assertGreater(stronger_away["away"], stronger_away["home"])
 
     def test_higher_home_rating_produces_shorter_home_odds(self) -> None:
         odds = build_match_odds(2300.0, 2100.0)

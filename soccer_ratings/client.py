@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 
 from .matchhistory import build_form_guide, build_head_to_head
 from .odds import (
+    DEFAULT_RHO,
     apply_shin_margin,
     build_asian_handicap_odds,
     build_btts_odds,
@@ -328,22 +329,16 @@ def compare_teams_from_ratings(
 
     # Load tuning parameters
     tuning_params = tuning_params or {}
-    elo_divisor = tuning_params.get("elo_divisor", 400.0)
-    draw_max = tuning_params.get("draw_max", 0.30)
-    draw_divisor = tuning_params.get("draw_divisor", 500.0)
-    draw_min = tuning_params.get("draw_min", 0.18)
     home_advantage = tuning_params.get("home_advantage", 0.0)
+    rho = tuning_params.get("rho", DEFAULT_RHO)
     weight_scale = tuning_params.get("weight_scale", 1.5)
     decay_half_life_days = tuning_params.get("decay_half_life_days", 182.5)
 
     base_probabilities = calculate_match_probabilities(
         home_rating,
         away_rating,
-        elo_divisor=elo_divisor,
-        draw_max=draw_max,
-        draw_divisor=draw_divisor,
-        draw_min=draw_min,
         home_advantage=home_advantage,
+        rho=rho,
     )
     historical_context = summarize_historical_match_context(
         historical_matches or [],
@@ -368,6 +363,7 @@ def compare_teams_from_ratings(
         away_rating,
         historical_context,
         team_goal_context=team_goal_context,
+        home_advantage=home_advantage,
     )
     total_goals_probabilities = calculate_total_goals_probabilities(
         expected_goals["home"],
@@ -428,11 +424,8 @@ def compare_teams_from_ratings(
         "base_odds": build_match_odds(
             home_rating,
             away_rating,
-            elo_divisor=elo_divisor,
-            draw_max=draw_max,
-            draw_divisor=draw_divisor,
-            draw_min=draw_min,
             home_advantage=home_advantage,
+            rho=rho,
         ),
         "probabilities": probabilities,
         "odds": odds,

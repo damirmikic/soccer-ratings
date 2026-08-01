@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .odds import calculate_match_probabilities
+from .odds import DEFAULT_RHO, calculate_match_probabilities
 
 OUTCOMES = ("home", "draw", "away")
 
@@ -66,20 +66,14 @@ def evaluate_match(
 
     # Load tuning parameters
     tuning_params = tuning_params or {}
-    elo_divisor = tuning_params.get("elo_divisor", 400.0)
-    draw_max = tuning_params.get("draw_max", 0.30)
-    draw_divisor = tuning_params.get("draw_divisor", 500.0)
-    draw_min = tuning_params.get("draw_min", 0.18)
     home_advantage = tuning_params.get("home_advantage", 0.0)
+    rho = tuning_params.get("rho", DEFAULT_RHO)
 
     model_probabilities = calculate_match_probabilities(
         float(home_rating),
         float(away_rating),
-        elo_divisor=elo_divisor,
-        draw_max=draw_max,
-        draw_divisor=draw_divisor,
-        draw_min=draw_min,
         home_advantage=home_advantage,
+        rho=rho,
     )
     market_probabilities, overround = implied_probabilities_from_odds(
         float(home_odds), float(draw_odds), float(away_odds)

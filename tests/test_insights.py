@@ -57,10 +57,10 @@ class ModelAccuracySummaryTests(unittest.TestCase):
         mock_calc.return_value = {"home": 0.6, "draw": 0.2, "away": 0.2}
 
         match_rows = [
-            (1500.0, 1400.0, 3, 1, 400.0, 0.3, 500.0, 0.18, 0.0),
+            (1500.0, 1400.0, 3, 1, 0.0, -0.13),
         ]
         tuned_rows = [
-            ("League X", "Country Y", "/league/x", 1.5, 400.0),
+            ("League X", "Country Y", "/league/x", 1.5, 80.0, -0.13),
         ]
 
         fake_db_cursor = _fake_db_cursor([match_rows, tuned_rows])
