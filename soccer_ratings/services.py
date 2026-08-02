@@ -24,6 +24,7 @@ from .db import (
     matches_to_csv,
     get_weekly_rating_movers,
     get_model_accuracy_summary,
+    merge_duplicate_teams,
 )
 from .db import (
     import_country_history as import_country_history_to_db,
@@ -351,6 +352,12 @@ class DashboardServices:
 
     def import_history_to_db(self, league_url: str) -> dict:
         return import_league_history_to_db(league_url)
+
+    def dedupe_history(self) -> dict:
+        """Merge duplicate team rows (and the duplicate match rows they
+        cascaded into) left behind by the old _upsert_team NULL-path bug.
+        """
+        return merge_duplicate_teams()
 
     def start_country_import_job(self, country_url: str) -> str:
         """Kick off (or reuse) a background country import job.

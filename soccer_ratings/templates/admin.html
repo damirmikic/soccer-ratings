@@ -119,6 +119,30 @@
       </div>
       <div id="calibration-sweep-status" style="margin-top: 12px;"></div>
     </section>
+
+    <section class="history-cache" style="margin-top: 22px; display: block;">
+      <div style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+        <div>
+          <strong>Data Maintenance</strong>
+          <div class="history-cache-meta">
+            Merges duplicate team rows (and the duplicate match rows they cascaded into) left behind by a
+            past import bug &mdash; historical opponents outside a league's own roster got re-inserted as a
+            new team every import run. Safe to run any time; a clean database is a no-op.
+          </div>
+        </div>
+        <div>
+          <button
+            hx-post="/fragments/dedupe-history"
+            hx-target="#dedupe-history-status"
+            hx-swap="innerHTML"
+            hx-indicator="#dedupe-history-indicator">
+            Merge Duplicate Teams &amp; Matches
+          </button>
+          <span id="dedupe-history-indicator" class="htmx-indicator" style="font-size: 11px; color: var(--muted);"><span class="spinner" aria-hidden="true"></span> Running&hellip;</span>
+        </div>
+      </div>
+      <div id="dedupe-history-status" style="margin-top: 12px;"></div>
+    </section>
   </main>
 
   <style>

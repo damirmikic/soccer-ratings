@@ -517,6 +517,34 @@ POST /api/calibration-sweep      # starts the job, returns 202 + job payload
 GET  /api/calibration-sweep/status?job_id=...
 ```
 
+## Data maintenance: duplicate team/match rows
+
+An older version of `_upsert_team` (`soccer_ratings/db.py`) inserted a fresh
+`teams` row every time it saw a team without a discovered `team_path` —
+typically a historical opponent outside a league's own roster, like a
+relegated/promoted team. Since Postgres treats `NULL` as never equal to
+`NULL` under a `UNIQUE` constraint, `ON CONFLICT (team_path)` never fired
+for those rows, so every re-import minted a new team row for the same team
+name, which cascaded into duplicate `matches` rows once the "same" fixture
+ended up pointing at two different team ids. `_upsert_team` now looks
+NULL-path teams up by name first, so this can't happen going forward.
+
+To clean up rows a database already has from before this fix, run the
+**"Merge Duplicate Teams & Matches"** button in the `/admin` page's **Data
+Maintenance** section, or headlessly:
+
+```bash
+python3 app.py dedupe-history
+```
+
+Both call `merge_duplicate_teams` in `soccer_ratings/db.py`, which merges
+duplicate team rows (preferring one that actually has a `team_path`),
+repoints `matches`/`rating_snapshots` at the surviving row, drops the match
+rows that become exact duplicates once both sides are remapped (keeping the
+most recently touched copy of each fixture), and deletes the now-orphaned
+team rows. Safe to run repeatedly — a database with no duplicates is a
+no-op.
+
 ## Tests
 
 ```bash

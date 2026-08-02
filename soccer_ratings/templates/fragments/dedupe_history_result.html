@@ -1,0 +1,9 @@
+{% if error %}
+<div class="history-cache-meta">Error: {{ error }}</div>
+{% elif result %}
+<div class="history-cache-meta">
+  Merged {{ result.teams_merged }} duplicate team row{{ "" if result.teams_merged == 1 else "s" }} and removed
+  {{ result.matches_removed }} duplicate match row{{ "" if result.matches_removed == 1 else "s" }}.
+  {% if result.teams_merged == 0 and result.matches_removed == 0 %}No duplicates found.{% endif %}
+</div>
+{% endif %}

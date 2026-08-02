@@ -1000,19 +1000,158 @@ def _upsert_league(cur, country_id: int | None, name: str, league_path: str, lat
 
 
 def _upsert_team(cur, name: str, team_path: str | None) -> int:
+    if team_path:
+        cur.execute(
+            """
+            INSERT INTO teams (name, team_path)
+            VALUES (%s, %s)
+            ON CONFLICT (team_path)
+            DO UPDATE SET
+                name = EXCLUDED.name,
+                updated_at = NOW()
+            RETURNING id
+            """,
+            (name, team_path),
+        )
+        return cur.fetchone()[0]
+
+    # No discovered team_path — this is common for historical opponents
+    # outside the league's own roster (e.g. a relegated/promoted team).
+    # NULL never equals NULL under the team_path UNIQUE constraint, so
+    # ON CONFLICT (team_path) would never fire here and every import would
+    # mint a fresh row for the same team name, which then cascades into
+    # duplicate match rows (see merge_duplicate_teams, which cleans up
+    # rows created by this bug before this fix). Look the team up by name
+    # instead so repeated imports reuse the same row.
+    cur.execute("SELECT id FROM teams WHERE name = %s AND team_path IS NULL", (name,))
+    row = cur.fetchone()
+    if row is not None:
+        cur.execute("UPDATE teams SET updated_at = NOW() WHERE id = %s", (row[0],))
+        return row[0]
+
     cur.execute(
-        """
-        INSERT INTO teams (name, team_path)
-        VALUES (%s, %s)
-        ON CONFLICT (team_path)
-        DO UPDATE SET
-            name = EXCLUDED.name,
-            updated_at = NOW()
-        RETURNING id
-        """,
-        (name, team_path),
+        "INSERT INTO teams (name, team_path) VALUES (%s, NULL) RETURNING id",
+        (name,),
     )
     return cur.fetchone()[0]
+
+
+def merge_duplicate_teams(database_url: str | None = None) -> dict:
+    """One-off cleanup for the duplicate rows _upsert_team's old NULL-path
+    bug produced: every re-import minted a fresh teams row for any team
+    seen without a discovered team_path (typically historical opponents
+    outside a league's own roster), which then cascaded into duplicate
+    match rows once the "same" fixture pointed at two different team ids.
+
+    Collapses those duplicate team rows down to one per name (preferring
+    a row that actually has a team_path, else the oldest row), repoints
+    matches/rating_snapshots at the surviving row, drops the match rows
+    that become exact duplicates once both sides are remapped (keeping
+    the most recently touched copy of each fixture), and finally deletes
+    the now-orphaned team rows. Safe to run repeatedly — a database with
+    no duplicates is a no-op.
+    """
+    with db_cursor(database_url, use_direct=True) as (conn, cur):
+        cur.execute(
+            """
+            CREATE TEMP TABLE team_merge_map AS
+            SELECT dupe.id AS dupe_id, canonical.id AS canonical_id
+            FROM (
+                SELECT id, name,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY name
+                           ORDER BY (team_path IS NOT NULL) DESC, id ASC
+                       ) AS rn
+                FROM teams
+            ) dupe
+            JOIN (
+                SELECT id, name,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY name
+                           ORDER BY (team_path IS NOT NULL) DESC, id ASC
+                       ) AS rn
+                FROM teams
+            ) canonical ON canonical.name = dupe.name AND canonical.rn = 1
+            WHERE dupe.rn > 1
+            """
+        )
+        cur.execute("SELECT COUNT(*) FROM team_merge_map")
+        (duplicate_team_count,) = cur.fetchone()
+
+        if duplicate_team_count == 0:
+            cur.execute("DROP TABLE team_merge_map")
+            conn.commit()
+            return {"teams_merged": 0, "matches_removed": 0}
+
+        # Drop match rows that would collide once both sides are remapped
+        # onto their canonical team id, keeping the most recently touched
+        # copy of each fixture (highest id).
+        cur.execute(
+            """
+            WITH mapped AS (
+                SELECT
+                    m.id,
+                    m.match_date,
+                    m.competition,
+                    COALESCE(mh.canonical_id, m.home_team_id) AS mapped_home,
+                    COALESCE(ma.canonical_id, m.away_team_id) AS mapped_away
+                FROM matches m
+                LEFT JOIN team_merge_map mh ON mh.dupe_id = m.home_team_id
+                LEFT JOIN team_merge_map ma ON ma.dupe_id = m.away_team_id
+            ),
+            ranked AS (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY match_date, competition, mapped_home, mapped_away
+                           ORDER BY id DESC
+                       ) AS rn
+                FROM mapped
+            )
+            DELETE FROM matches WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
+            """
+        )
+        matches_removed = cur.rowcount
+
+        cur.execute(
+            """
+            UPDATE matches m
+            SET home_team_id = map.canonical_id, updated_at = NOW()
+            FROM team_merge_map map
+            WHERE m.home_team_id = map.dupe_id
+            """
+        )
+        cur.execute(
+            """
+            UPDATE matches m
+            SET away_team_id = map.canonical_id, updated_at = NOW()
+            FROM team_merge_map map
+            WHERE m.away_team_id = map.dupe_id
+            """
+        )
+        cur.execute(
+            """
+            UPDATE matches m
+            SET source_team_id = map.canonical_id, updated_at = NOW()
+            FROM team_merge_map map
+            WHERE m.source_team_id = map.dupe_id
+            """
+        )
+        cur.execute(
+            """
+            UPDATE rating_snapshots rs
+            SET team_id = map.canonical_id
+            FROM team_merge_map map
+            WHERE rs.team_id = map.dupe_id
+            """
+        )
+
+        cur.execute("DELETE FROM teams WHERE id IN (SELECT dupe_id FROM team_merge_map)")
+        teams_merged = cur.rowcount
+
+        cur.execute("DROP TABLE team_merge_map")
+        conn.commit()
+
+    return {"teams_merged": teams_merged, "matches_removed": matches_removed}
 
 
 def _ensure_league_from_url(cur, league_url: str) -> int:
