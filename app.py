@@ -8,7 +8,7 @@ from pathlib import Path
 from soccer_ratings.env import load_env_file
 from soccer_ratings.backtest import DEFAULT_EDGE_THRESHOLD_PERCENT, run_league_backtest
 from soccer_ratings.odds import DEFAULT_MARKET_WEIGHT
-from soccer_ratings.tuning import DEFAULT_WEIGHT_SCALES, sweep_weight_scales, sweep_league_parameters
+from soccer_ratings.tuning import DEFAULT_WEIGHT_SCALES, fit_league_model, sweep_weight_scales, sweep_league_parameters
 from soccer_ratings.client import (
     DEFAULT_URL,
     build_and_cache_league_history,
@@ -290,6 +290,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Save the best-performing tuning parameters to the database.",
     )
 
+    fit_model_parser = subparsers.add_parser(
+        "fit-model",
+        help=(
+            "Fit the goal curve, rho, and a recalibration temperature for a league on a "
+            "chronological train/calibration/test split of its stored history, and report "
+            "out-of-sample Brier against the module defaults. This is the model "
+            "soccer_ratings.backtest.evaluate_match actually runs (unlike tune-calibration, "
+            "which tunes the separate history-calibrated model compare_teams_from_ratings uses)."
+        ),
+    )
+    fit_model_parser.add_argument(
+        "--league-url",
+        required=True,
+        help="League path or URL, for example /England/UK1/.",
+    )
+    fit_model_parser.add_argument(
+        "--min-matches",
+        type=int,
+        default=30,
+        help="Skip the fit if the league has fewer completed matches than this (avoids fitting on noise).",
+    )
+    fit_model_parser.add_argument(
+        "--database-url",
+        help="Optional Postgres connection URL. Defaults to DATABASE_URL.",
+    )
+    fit_model_parser.add_argument(
+        "--persist",
+        action="store_true",
+        help="Save the fitted parameters to the database.",
+    )
+
     dedupe_history_parser = subparsers.add_parser(
         "dedupe-history",
         help=(
@@ -412,6 +443,12 @@ def main() -> int:
         )
         if args.persist and payload.get("best"):
             update_league_tuning_parameters(args.league_url, payload["best"], args.database_url)
+            payload["persisted"] = True
+    elif args.command == "fit-model":
+        matches = load_league_history_matches(args.league_url, args.database_url)
+        payload = fit_league_model(matches, min_matches=args.min_matches)
+        if args.persist and payload.get("fitted"):
+            update_league_tuning_parameters(args.league_url, payload["fitted"], args.database_url)
             payload["persisted"] = True
     elif args.command == "dedupe-history":
         payload = merge_duplicate_teams(args.database_url)

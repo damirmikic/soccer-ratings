@@ -135,6 +135,71 @@ class EvaluateMatchTests(unittest.TestCase):
         self.assertAlmostEqual(row["raw_implied_probabilities"]["draw"], 1.0 / 3.0, places=4)
         self.assertAlmostEqual(row["raw_implied_probabilities"]["away"], 0.25, places=4)
 
+    def test_default_temperature_leaves_raw_model_effectively_unchanged(self) -> None:
+        match = make_match()
+        row = evaluate_match(match)
+
+        self.assertEqual(row["recalibrated_probabilities"], row["raw_model_probabilities"])
+
+    def test_temperature_recalibrates_before_the_market_blend_not_after(self) -> None:
+        from soccer_ratings.odds import apply_temperature
+
+        match = make_match()
+        row = evaluate_match(match, tuning_params={"temperature": 0.5}, market_weight=0.0)
+
+        raw = calculate_match_probabilities(2200.0, 2000.0)
+        expected_recalibrated = apply_temperature(raw, 0.5)
+        self.assertEqual(row["recalibrated_probabilities"], expected_recalibrated)
+        # market_weight=0.0 isolates the model side of the blend, so with
+        # temperature applied before the blend, model_probabilities should
+        # match the recalibrated (not the untouched raw) probabilities —
+        # up to the independent rounding blend_with_market does on its own
+        # normalization pass, hence assertAlmostEqual rather than exact
+        # equality here.
+        for key in ("home", "draw", "away"):
+            self.assertAlmostEqual(row["model_probabilities"][key], expected_recalibrated[key], places=3)
+        self.assertNotEqual(row["raw_model_probabilities"], expected_recalibrated)
+
+    def test_reports_recalibrated_brier_alongside_raw_and_blended(self) -> None:
+        match = make_match()
+        row = evaluate_match(match, tuning_params={"temperature": 0.6})
+
+        self.assertIn("recalibrated_brier", row)
+        self.assertIsInstance(row["recalibrated_brier"], float)
+
+    def test_goal_curve_tuning_params_change_the_raw_model(self) -> None:
+        match = make_match()
+        default_row = evaluate_match(match)
+        curved_row = evaluate_match(
+            match,
+            tuning_params={
+                "home_goal_scale": 1.6,
+                "home_goal_rate": 400.0,
+                "away_goal_scale": 0.9,
+                "away_goal_rate": 900.0,
+            },
+        )
+
+        self.assertNotEqual(
+            default_row["raw_model_probabilities"], curved_row["raw_model_probabilities"]
+        )
+
+    def test_fit_league_model_output_is_accepted_as_tuning_params(self) -> None:
+        # The exact dict shape soccer_ratings.tuning.fit_league_model
+        # returns under "fitted" — this is the contract that keeps a
+        # persisted fit usable without any translation layer.
+        fitted = {
+            "home_advantage": 0.0,
+            "rho": -0.08,
+            "temperature": 0.92,
+            "home_goal_scale": 1.5,
+            "home_goal_rate": 700.0,
+            "away_goal_scale": 1.0,
+            "away_goal_rate": 800.0,
+        }
+        row = evaluate_match(make_match(), tuning_params=fitted)
+        self.assertIsNotNone(row)
+
 
 class RunLeagueBacktestTests(unittest.TestCase):
     def test_empty_matches_returns_zero_summary(self) -> None:
@@ -236,9 +301,22 @@ class RunLeagueBacktestTests(unittest.TestCase):
         result = run_league_backtest(matches)
 
         self.assertIn("avg_raw_model_brier", result)
+        self.assertIn("avg_recalibrated_brier", result)
         self.assertIn("avg_market_brier", result)
         self.assertIn("beats_market", result)
         self.assertEqual(result["market_weight"], DEFAULT_MARKET_WEIGHT)
+
+    def test_avg_recalibrated_brier_matches_raw_at_default_temperature(self) -> None:
+        matches = [make_match(home_team="A"), make_match(home_team="B")]
+        result = run_league_backtest(matches)
+
+        self.assertEqual(result["avg_recalibrated_brier"], result["avg_raw_model_brier"])
+
+    def test_temperature_tuning_param_moves_recalibrated_brier_away_from_raw(self) -> None:
+        matches = [make_match(home_team="A"), make_match(home_team="B")]
+        result = run_league_backtest(matches, tuning_params={"temperature": 0.4})
+
+        self.assertNotEqual(result["avg_recalibrated_brier"], result["avg_raw_model_brier"])
 
     def test_market_weight_zero_makes_blended_brier_match_raw_model_brier(self) -> None:
         matches = [make_match(home_team="A"), make_match(home_team="B")]

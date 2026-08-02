@@ -7,6 +7,30 @@ DEFAULT_RHO = -0.13
 DEFAULT_MAX_GOALS = 10
 DEFAULT_MARKET_WEIGHT = 0.7
 
+# _base_expected_goals's rating->goals curve: lambda = scale * exp(+-gap / rate).
+# These defaults are chosen to match the *old* linear-with-hard-caps curve's
+# value and slope at gap=0 (home 1.42, away 1.08, with slopes 1/550 and
+# -1/700) so a league with no fitted curve yet behaves the same as before at
+# an even matchup — but grows/decays smoothly instead of hitting a wall at
+# home=3.2/away=0.30, which is what compressed favorites and inflated draws
+# at mismatches (see soccer_ratings.tuning.fit_league_model, which fits
+# these four numbers per league via Poisson likelihood on real scorelines).
+DEFAULT_HOME_GOAL_SCALE = 1.42
+DEFAULT_HOME_GOAL_RATE = 781.0
+DEFAULT_AWAY_GOAL_SCALE = 1.08
+DEFAULT_AWAY_GOAL_RATE = 756.0
+
+# Numerical safety net only, not the shaping mechanism — a real Premier
+# League favorite/longshot gap should never get near these; they exist so a
+# pathological rating gap (bad data, an unfit curve) can't send lambda to
+# zero or to a value math.exp/math.factorial can't handle.
+GOAL_LAMBDA_MIN = 0.05
+GOAL_LAMBDA_MAX = 6.5
+
+# Temperature scaling (see apply_temperature): 1.0 leaves the model's
+# probabilities untouched.
+DEFAULT_TEMPERATURE = 1.0
+
 OUTCOMES = ("home", "draw", "away")
 
 
@@ -36,6 +60,11 @@ def _base_expected_goals(
     home_rating: float,
     away_rating: float,
     home_advantage: float = 0.0,
+    *,
+    home_goal_scale: float = DEFAULT_HOME_GOAL_SCALE,
+    home_goal_rate: float = DEFAULT_HOME_GOAL_RATE,
+    away_goal_scale: float = DEFAULT_AWAY_GOAL_SCALE,
+    away_goal_rate: float = DEFAULT_AWAY_GOAL_RATE,
 ) -> tuple[float, float]:
     """Map a rating gap onto expected goals, ratings-only (no history blended
     in). This is the same mapping estimate_expected_goals uses before any
@@ -43,10 +72,24 @@ def _base_expected_goals(
     calculate_match_probabilities builds its score grid from — sharing this
     helper is what keeps the 1X2 market consistent with totals/BTTS/AH,
     which are all derived from the same expected goals.
+
+    The curve is exponential (lambda = scale * exp(+-gap / rate)) rather
+    than linear-with-hard-caps: a fixed ceiling on home goals and floor on
+    away goals meant a big favorite's win probability could never climb
+    past where the cap saturated, no matter how lopsided the real rating
+    gap — which is exactly where the model's calibration was worst (see the
+    backtest calibration tables: 70-80% predicted landing at 80-90%+
+    actual). The exponential form has no such wall; home_goal_scale/rate and
+    away_goal_scale/rate are fit per league by
+    soccer_ratings.tuning.fit_league_model and read from tuning_params the
+    same way home_advantage and rho already are, so an untuned league keeps
+    today's shape via the module defaults above.
     """
     rating_gap = home_rating - away_rating + home_advantage
-    home_goals = min(3.2, max(0.45, 1.42 + (rating_gap / 550.0)))
-    away_goals = min(2.7, max(0.3, 1.08 - (rating_gap / 700.0)))
+    home_goals = home_goal_scale * math.exp(rating_gap / home_goal_rate)
+    away_goals = away_goal_scale * math.exp(-rating_gap / away_goal_rate)
+    home_goals = min(GOAL_LAMBDA_MAX, max(GOAL_LAMBDA_MIN, home_goals))
+    away_goals = min(GOAL_LAMBDA_MAX, max(GOAL_LAMBDA_MIN, away_goals))
     return home_goals, away_goals
 
 
@@ -78,6 +121,11 @@ def calculate_match_probabilities(
     home_advantage: float = 0.0,
     rho: float = DEFAULT_RHO,
     max_goals: int = DEFAULT_MAX_GOALS,
+    *,
+    home_goal_scale: float = DEFAULT_HOME_GOAL_SCALE,
+    home_goal_rate: float = DEFAULT_HOME_GOAL_RATE,
+    away_goal_scale: float = DEFAULT_AWAY_GOAL_SCALE,
+    away_goal_rate: float = DEFAULT_AWAY_GOAL_RATE,
 ) -> dict[str, float]:
     """Derive 1X2 probabilities from a bivariate-Poisson score grid.
 
@@ -88,9 +136,18 @@ def calculate_match_probabilities(
     highest when both expected-goal totals are low, and shrink as either
     side's goal expectation grows), with the Dixon-Coles rho term applying
     a further correction at the four low-score cells; soccer_ratings.tuning
-    fits rho per league against real history.
+    fits rho, and the four home/away_goal_scale/rate curve parameters, per
+    league against real history.
     """
-    lambda_home, lambda_away = _base_expected_goals(home_rating, away_rating, home_advantage)
+    lambda_home, lambda_away = _base_expected_goals(
+        home_rating,
+        away_rating,
+        home_advantage,
+        home_goal_scale=home_goal_scale,
+        home_goal_rate=home_goal_rate,
+        away_goal_scale=away_goal_scale,
+        away_goal_rate=away_goal_rate,
+    )
 
     home_pmf = [_poisson_probability(goals, lambda_home) for goals in range(max_goals + 1)]
     away_pmf = [_poisson_probability(goals, lambda_away) for goals in range(max_goals + 1)]
@@ -132,12 +189,21 @@ def build_match_odds(
     away_rating: float,
     home_advantage: float = 0.0,
     rho: float = DEFAULT_RHO,
+    *,
+    home_goal_scale: float = DEFAULT_HOME_GOAL_SCALE,
+    home_goal_rate: float = DEFAULT_HOME_GOAL_RATE,
+    away_goal_scale: float = DEFAULT_AWAY_GOAL_SCALE,
+    away_goal_rate: float = DEFAULT_AWAY_GOAL_RATE,
 ) -> dict[str, float]:
     probabilities = calculate_match_probabilities(
         home_rating,
         away_rating,
         home_advantage=home_advantage,
         rho=rho,
+        home_goal_scale=home_goal_scale,
+        home_goal_rate=home_goal_rate,
+        away_goal_scale=away_goal_scale,
+        away_goal_rate=away_goal_rate,
     )
     return build_odds_from_probabilities(probabilities)
 
@@ -158,6 +224,11 @@ def build_dnb_odds(
     away_rating: float,
     home_advantage: float = 0.0,
     rho: float = DEFAULT_RHO,
+    *,
+    home_goal_scale: float = DEFAULT_HOME_GOAL_SCALE,
+    home_goal_rate: float = DEFAULT_HOME_GOAL_RATE,
+    away_goal_scale: float = DEFAULT_AWAY_GOAL_SCALE,
+    away_goal_rate: float = DEFAULT_AWAY_GOAL_RATE,
 ) -> dict[str, float]:
     dnb_probabilities = calculate_dnb_probabilities(
         calculate_match_probabilities(
@@ -165,6 +236,10 @@ def build_dnb_odds(
             away_rating,
             home_advantage=home_advantage,
             rho=rho,
+            home_goal_scale=home_goal_scale,
+            home_goal_rate=home_goal_rate,
+            away_goal_scale=away_goal_scale,
+            away_goal_rate=away_goal_rate,
         )
     )
     return build_odds_from_probabilities(dnb_probabilities)
@@ -176,8 +251,21 @@ def estimate_expected_goals(
     historical_context: dict[str, float] | None = None,
     team_goal_context: dict[str, float] | None = None,
     home_advantage: float = 0.0,
+    *,
+    home_goal_scale: float = DEFAULT_HOME_GOAL_SCALE,
+    home_goal_rate: float = DEFAULT_HOME_GOAL_RATE,
+    away_goal_scale: float = DEFAULT_AWAY_GOAL_SCALE,
+    away_goal_rate: float = DEFAULT_AWAY_GOAL_RATE,
 ) -> dict[str, float]:
-    base_home_goals, base_away_goals = _base_expected_goals(home_rating, away_rating, home_advantage)
+    base_home_goals, base_away_goals = _base_expected_goals(
+        home_rating,
+        away_rating,
+        home_advantage,
+        home_goal_scale=home_goal_scale,
+        home_goal_rate=home_goal_rate,
+        away_goal_scale=away_goal_scale,
+        away_goal_rate=away_goal_rate,
+    )
 
     if historical_context:
         effective_sample_size = float(historical_context.get("effective_sample_size", 0.0))
@@ -560,6 +648,36 @@ def blend_with_market(
     if total <= 0:
         return {key: 0.0 for key in OUTCOMES}
     return {key: round(value / total, 4) for key, value in blended.items()}
+
+
+def apply_temperature(
+    probabilities: dict[str, float], temperature: float = DEFAULT_TEMPERATURE
+) -> dict[str, float]:
+    """Sharpen (temperature < 1) or flatten (temperature > 1) a probability
+    triple without ever changing which outcome it favors.
+
+    This is logit temperature scaling — softmax(log(p)/T) — applied
+    directly to probabilities instead of round-tripping through log/exp:
+    p_i**(1/T) / sum_j(p_j**(1/T)) is the same function. Raising every
+    probability to a shared positive power preserves their relative order,
+    so temperature scaling can correct a model that is systematically too
+    timid or too confident without ever being able to flip a pick.
+
+    soccer_ratings.tuning.fit_league_model fits temperature per league on a
+    calibration split, targeting exactly the residual compression the
+    exponential goal curve and rho don't reach on their own: the backtest's
+    calibration table shows heavy favorites landing under the market's
+    actual frequency even after those are fit, and temperature < 1 is what
+    sharpens the raw model up to close that gap.
+    """
+    if temperature <= 0:
+        temperature = DEFAULT_TEMPERATURE
+    exponent = 1.0 / temperature
+    powered = {key: max(0.0, value) ** exponent for key, value in probabilities.items()}
+    total = sum(powered.values())
+    if total <= 0:
+        return {key: round(value, 4) for key, value in probabilities.items()}
+    return {key: round(value / total, 4) for key, value in powered.items()}
 
 
 def apply_shin_margin(probabilities: dict[str, float], margin_percent: float) -> dict[str, object]:

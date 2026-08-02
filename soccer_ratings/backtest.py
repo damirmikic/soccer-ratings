@@ -3,7 +3,19 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from .matchkeys import dedupe_matches
-from .odds import DEFAULT_MARKET_WEIGHT, DEFAULT_RHO, blend_with_market, calculate_match_probabilities, parse_date
+from .odds import (
+    DEFAULT_AWAY_GOAL_RATE,
+    DEFAULT_AWAY_GOAL_SCALE,
+    DEFAULT_HOME_GOAL_RATE,
+    DEFAULT_HOME_GOAL_SCALE,
+    DEFAULT_MARKET_WEIGHT,
+    DEFAULT_RHO,
+    DEFAULT_TEMPERATURE,
+    apply_temperature,
+    blend_with_market,
+    calculate_match_probabilities,
+    parse_date,
+)
 
 OUTCOMES = ("home", "draw", "away")
 
@@ -106,18 +118,33 @@ def evaluate_match(
     tuning_params = tuning_params or {}
     home_advantage = tuning_params.get("home_advantage", 0.0)
     rho = tuning_params.get("rho", DEFAULT_RHO)
+    home_goal_scale = tuning_params.get("home_goal_scale", DEFAULT_HOME_GOAL_SCALE)
+    home_goal_rate = tuning_params.get("home_goal_rate", DEFAULT_HOME_GOAL_RATE)
+    away_goal_scale = tuning_params.get("away_goal_scale", DEFAULT_AWAY_GOAL_SCALE)
+    away_goal_rate = tuning_params.get("away_goal_rate", DEFAULT_AWAY_GOAL_RATE)
+    temperature = tuning_params.get("temperature", DEFAULT_TEMPERATURE)
 
     raw_model_probabilities = calculate_match_probabilities(
         float(home_rating),
         float(away_rating),
         home_advantage=home_advantage,
         rho=rho,
+        home_goal_scale=home_goal_scale,
+        home_goal_rate=home_goal_rate,
+        away_goal_scale=away_goal_scale,
+        away_goal_rate=away_goal_rate,
     )
+    # Temperature scaling corrects the raw model's own over/under-confidence
+    # (fit per league by soccer_ratings.tuning.fit_league_model) before the
+    # market gets a vote — see odds.apply_temperature. raw_model_probabilities
+    # stays untouched below so the raw-vs-recalibrated-vs-market Brier
+    # comparison keeps showing what temperature scaling is actually buying.
+    recalibrated_probabilities = apply_temperature(raw_model_probabilities, temperature)
     market_probabilities, overround = implied_probabilities_from_odds(
         float(home_odds), float(draw_odds), float(away_odds)
     )
     model_probabilities = blend_with_market(
-        raw_model_probabilities, market_probabilities, market_weight=market_weight
+        recalibrated_probabilities, market_probabilities, market_weight=market_weight
     )
     outcome = match_outcome(int(home_goals), int(away_goals))
     market_odds = {"home": float(home_odds), "draw": float(draw_odds), "away": float(away_odds)}
@@ -157,6 +184,7 @@ def evaluate_match(
         "outcome": outcome,
         "model_probabilities": model_probabilities,
         "raw_model_probabilities": raw_model_probabilities,
+        "recalibrated_probabilities": recalibrated_probabilities,
         "market_probabilities": {key: round(value, 4) for key, value in market_probabilities.items()},
         "raw_implied_probabilities": {key: round(value, 4) for key, value in raw_implied_probabilities.items()},
         "market_odds": market_odds,
@@ -164,6 +192,7 @@ def evaluate_match(
         "edges": edges,
         "brier": round(_brier(model_probabilities), 4),
         "raw_model_brier": round(_brier(raw_model_probabilities), 4),
+        "recalibrated_brier": round(_brier(recalibrated_probabilities), 4),
         "market_brier": round(_brier(market_probabilities), 4),
         "value_bets": value_bets,
         "staked": round(staked, 2),
@@ -219,6 +248,7 @@ def run_league_backtest(
 
     avg_brier = sum(row["brier"] for row in evaluated) / len(evaluated)
     avg_raw_model_brier = sum(row["raw_model_brier"] for row in evaluated) / len(evaluated)
+    avg_recalibrated_brier = sum(row["recalibrated_brier"] for row in evaluated) / len(evaluated)
     avg_market_brier = sum(row["market_brier"] for row in evaluated) / len(evaluated)
     pick_hits = sum(
         1
@@ -262,6 +292,7 @@ def run_league_backtest(
         "market_weight": round(market_weight, 2),
         "avg_brier": round(avg_brier, 4),
         "avg_raw_model_brier": round(avg_raw_model_brier, 4),
+        "avg_recalibrated_brier": round(avg_recalibrated_brier, 4),
         "avg_market_brier": round(avg_market_brier, 4),
         "beats_market": beats_market,
         "pick_accuracy_percent": round(pick_hits / len(evaluated) * 100.0, 1),

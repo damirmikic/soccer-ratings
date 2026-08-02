@@ -11,13 +11,18 @@ from urllib.request import Request, urlopen
 from .matchhistory import build_form_guide, build_head_to_head
 from .matchkeys import match_identity_key, sort_matches_by_date
 from .odds import (
+    DEFAULT_AWAY_GOAL_RATE,
+    DEFAULT_AWAY_GOAL_SCALE,
+    DEFAULT_HOME_GOAL_RATE,
+    DEFAULT_HOME_GOAL_SCALE,
     DEFAULT_RHO,
+    DEFAULT_TEMPERATURE,
     apply_shin_margin,
+    apply_temperature,
     build_asian_handicap_odds,
     build_btts_odds,
     build_dnb_odds,
     build_double_chance_odds,
-    build_match_odds,
     build_odds_from_probabilities,
     build_total_goals_odds,
     calculate_asian_handicap_probabilities,
@@ -334,13 +339,26 @@ def compare_teams_from_ratings(
     rho = tuning_params.get("rho", DEFAULT_RHO)
     weight_scale = tuning_params.get("weight_scale", 1.5)
     decay_half_life_days = tuning_params.get("decay_half_life_days", 182.5)
+    home_goal_scale = tuning_params.get("home_goal_scale", DEFAULT_HOME_GOAL_SCALE)
+    home_goal_rate = tuning_params.get("home_goal_rate", DEFAULT_HOME_GOAL_RATE)
+    away_goal_scale = tuning_params.get("away_goal_scale", DEFAULT_AWAY_GOAL_SCALE)
+    away_goal_rate = tuning_params.get("away_goal_rate", DEFAULT_AWAY_GOAL_RATE)
+    temperature = tuning_params.get("temperature", DEFAULT_TEMPERATURE)
 
     base_probabilities = calculate_match_probabilities(
         home_rating,
         away_rating,
         home_advantage=home_advantage,
         rho=rho,
+        home_goal_scale=home_goal_scale,
+        home_goal_rate=home_goal_rate,
+        away_goal_scale=away_goal_scale,
+        away_goal_rate=away_goal_rate,
     )
+    # Same recalibration step soccer_ratings.backtest.evaluate_match applies
+    # to its "raw model" output, before anything else (history calibration
+    # here, the market blend there) gets a say — see odds.apply_temperature.
+    base_probabilities = apply_temperature(base_probabilities, temperature)
     historical_context = summarize_historical_match_context(
         historical_matches or [],
         target_rating_gap=home_rating - away_rating,
@@ -365,6 +383,10 @@ def compare_teams_from_ratings(
         historical_context,
         team_goal_context=team_goal_context,
         home_advantage=home_advantage,
+        home_goal_scale=home_goal_scale,
+        home_goal_rate=home_goal_rate,
+        away_goal_scale=away_goal_scale,
+        away_goal_rate=away_goal_rate,
     )
     total_goals_probabilities = calculate_total_goals_probabilities(
         expected_goals["home"],
@@ -422,12 +444,10 @@ def compare_teams_from_ratings(
         "margin_percent": round(max(0.0, margin_percent), 2),
         "model": "history-calibrated" if historical_context else "ratings-only",
         "base_probabilities": base_probabilities,
-        "base_odds": build_match_odds(
-            home_rating,
-            away_rating,
-            home_advantage=home_advantage,
-            rho=rho,
-        ),
+        # Derived from base_probabilities directly, not recomputed via
+        # build_match_odds — that would skip apply_temperature above and
+        # silently disagree with "base_probabilities" in the same payload.
+        "base_odds": build_odds_from_probabilities(base_probabilities),
         "probabilities": probabilities,
         "odds": odds,
         "dnb_probabilities": dnb_probabilities,
