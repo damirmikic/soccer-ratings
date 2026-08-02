@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from soccer_ratings.env import load_env_file
-from soccer_ratings.backtest import run_league_backtest
+from soccer_ratings.backtest import DEFAULT_EDGE_THRESHOLD_PERCENT, run_league_backtest
 from soccer_ratings.odds import DEFAULT_MARKET_WEIGHT
 from soccer_ratings.tuning import DEFAULT_WEIGHT_SCALES, sweep_weight_scales, sweep_league_parameters
 from soccer_ratings.client import (
@@ -226,8 +226,11 @@ def build_parser() -> argparse.ArgumentParser:
     backtest_parser.add_argument(
         "--edge-threshold",
         type=float,
-        default=5.0,
-        help="Minimum model-vs-market edge (percentage points) to count as a value bet.",
+        default=DEFAULT_EDGE_THRESHOLD_PERCENT,
+        help=(
+            "Minimum relative model-vs-market edge (percent, i.e. model_p/raw_implied_p - 1) "
+            "to count as a value bet, priced against the raw (vigged) odds actually on offer."
+        ),
     )
     backtest_parser.add_argument(
         "--stake",

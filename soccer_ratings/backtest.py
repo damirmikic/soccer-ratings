@@ -6,6 +6,18 @@ OUTCOMES = ("home", "draw", "away")
 
 _CALIBRATION_BUCKET_SIZE = 0.1
 
+# edge_threshold_percent is now a *relative* edge (model_p / raw_implied_p -
+# 1) rather than an absolute percentage-point gap, so it needs a higher bar
+# than the old 5.0pp default to mean roughly the same thing — 5% relative
+# edge is trivially crossed by noise, especially on long-shot prices.
+DEFAULT_EDGE_THRESHOLD_PERCENT = 10.0
+
+# A side with more than this share of all flagged value bets makes the
+# backtest's ROI indistinguishable from "the model is systematically biased
+# toward this side" rather than "the model has found real edge" — see
+# value_bets_by_side/roi_trustworthy below.
+MAX_TRUSTWORTHY_SIDE_SHARE = 0.6
+
 
 def implied_probabilities_from_odds(
     home_odds: float, draw_odds: float, away_odds: float
@@ -36,7 +48,7 @@ def match_outcome(home_goals: int, away_goals: int) -> str:
 
 def evaluate_match(
     match: dict,
-    edge_threshold_percent: float = 5.0,
+    edge_threshold_percent: float = DEFAULT_EDGE_THRESHOLD_PERCENT,
     stake: float = 1.0,
     tuning_params: dict[str, float] | None = None,
     market_weight: float = DEFAULT_MARKET_WEIGHT,
@@ -58,6 +70,12 @@ def evaluate_match(
     "raw_model_probabilities"/"raw_model_brier" for the uncorrected one),
     along with "market_brier", so the market can be scored as a baseline
     alongside both.
+
+    Edges are relative, against the raw (vigged) price actually on offer —
+    (model_p / raw_implied_p - 1) * 100 — not the de-vigged market
+    probability: the vig is money you'd actually pay, and a flat
+    percentage-point edge means very different things at a 10% price versus
+    a 70% one, where relative edge is comparable across the whole range.
 
     Returns None if the match is missing anything needed to score it
     (unplayed fixture, missing odds, etc).
@@ -95,8 +113,18 @@ def evaluate_match(
     outcome = match_outcome(int(home_goals), int(away_goals))
     market_odds = {"home": float(home_odds), "draw": float(draw_odds), "away": float(away_odds)}
 
+    # The raw, vigged implied price — what you'd actually pay to place the
+    # bet — as opposed to market_probabilities, which has the overround
+    # stripped out and is only used for Brier scoring/blending above.
+    raw_implied_probabilities = {
+        key: (1.0 / market_odds[key]) if market_odds[key] > 0 else 0.0 for key in OUTCOMES
+    }
     edges = {
-        key: round((model_probabilities[key] - market_probabilities[key]) * 100.0, 2)
+        key: (
+            round((model_probabilities[key] / raw_implied_probabilities[key] - 1.0) * 100.0, 2)
+            if raw_implied_probabilities[key] > 0
+            else 0.0
+        )
         for key in OUTCOMES
     }
 
@@ -121,6 +149,7 @@ def evaluate_match(
         "model_probabilities": model_probabilities,
         "raw_model_probabilities": raw_model_probabilities,
         "market_probabilities": {key: round(value, 4) for key, value in market_probabilities.items()},
+        "raw_implied_probabilities": {key: round(value, 4) for key, value in raw_implied_probabilities.items()},
         "market_odds": market_odds,
         "overround": round(overround, 4),
         "edges": edges,
@@ -135,7 +164,7 @@ def evaluate_match(
 
 def run_league_backtest(
     matches: list[dict],
-    edge_threshold_percent: float = 5.0,
+    edge_threshold_percent: float = DEFAULT_EDGE_THRESHOLD_PERCENT,
     stake: float = 1.0,
     tuning_params: dict[str, float] | None = None,
     market_weight: float = DEFAULT_MARKET_WEIGHT,
@@ -183,6 +212,25 @@ def run_league_backtest(
         1 for row in value_rows for key in row["value_bets"] if key == row["outcome"]
     )
 
+    beats_market = avg_brier < avg_market_brier
+    value_bets_by_side = _build_value_bets_by_side(evaluated, stake)
+    sides_balanced, dominant_side, dominant_share = _check_side_balance(
+        value_bets_by_side, value_bet_count
+    )
+
+    roi_caveats = []
+    if value_bet_count > 0 and not beats_market:
+        roi_caveats.append(
+            "The blended model's Brier score does not beat the market's — ROI may reflect "
+            "leftover model bias rather than genuine skill."
+        )
+    if sides_balanced is False:
+        roi_caveats.append(
+            f"{round(dominant_share * 100.0, 1)}% of value bets are on '{dominant_side}' — ROI "
+            "may just be measuring a systematic model bias toward that side, not real edge."
+        )
+    roi_trustworthy = bool(value_bet_count > 0 and beats_market and sides_balanced)
+
     return {
         "matches_evaluated": len(evaluated),
         "edge_threshold_percent": round(edge_threshold_percent, 2),
@@ -191,12 +239,16 @@ def run_league_backtest(
         "avg_brier": round(avg_brier, 4),
         "avg_raw_model_brier": round(avg_raw_model_brier, 4),
         "avg_market_brier": round(avg_market_brier, 4),
-        "beats_market": avg_brier < avg_market_brier,
+        "beats_market": beats_market,
         "pick_accuracy_percent": round(pick_hits / len(evaluated) * 100.0, 1),
         "calibration": _build_calibration_buckets(evaluated),
         "value_bet_matches": len(value_rows),
         "value_bet_count": value_bet_count,
         "value_bet_wins": value_bet_wins,
+        "value_bets_by_side": value_bets_by_side,
+        "sides_balanced": sides_balanced,
+        "roi_trustworthy": roi_trustworthy,
+        "roi_caveats": roi_caveats,
         "hit_rate_percent": (
             round(value_bet_wins / value_bet_count * 100.0, 1) if value_bet_count > 0 else None
         ),
@@ -207,6 +259,63 @@ def run_league_backtest(
         ),
         "matches": evaluated,
     }
+
+
+def _build_value_bets_by_side(evaluated: list[dict], stake: float) -> dict[str, dict]:
+    """Break the flat-stake value-bet simulation down per outcome side, so a
+    lopsided book (e.g. ~all away bets) is visible directly instead of
+    hiding inside a single blended ROI number.
+    """
+    totals = {key: {"count": 0, "wins": 0, "staked": 0.0, "profit": 0.0} for key in OUTCOMES}
+    for row in evaluated:
+        for key in row["value_bets"]:
+            side = totals[key]
+            side["count"] += 1
+            side["staked"] += stake
+            if key == row["outcome"]:
+                side["wins"] += 1
+                side["profit"] += stake * (row["market_odds"][key] - 1.0)
+            else:
+                side["profit"] -= stake
+
+    by_side = {}
+    for key, side in totals.items():
+        by_side[key] = {
+            "count": side["count"],
+            "wins": side["wins"],
+            "hit_rate_percent": (
+                round(side["wins"] / side["count"] * 100.0, 1) if side["count"] > 0 else None
+            ),
+            "staked": round(side["staked"], 2),
+            "profit": round(side["profit"], 2),
+            "roi_percent": (
+                round(side["profit"] / side["staked"] * 100.0, 2) if side["staked"] > 0 else None
+            ),
+        }
+    return by_side
+
+
+def _check_side_balance(
+    value_bets_by_side: dict[str, dict], value_bet_count: int
+) -> tuple[bool | None, str | None, float]:
+    """Whether value bets are spread across outcome sides rather than piled
+    onto one — a single side above MAX_TRUSTWORTHY_SIDE_SHARE of all bets
+    means the "edge" is most likely a systematic model bias toward that
+    side (see the analysis that motivated this: ~all "value" was on away
+    bets), not evidence the model is finding real mispricing.
+
+    Returns (is_balanced, dominant_side, dominant_share). is_balanced is
+    None when there are no value bets to judge at all.
+    """
+    if value_bet_count <= 0:
+        return None, None, 0.0
+
+    dominant_side, dominant_count = max(
+        ((key, side["count"]) for key, side in value_bets_by_side.items()),
+        key=lambda item: item[1],
+    )
+    dominant_share = dominant_count / value_bet_count
+    return dominant_share <= MAX_TRUSTWORTHY_SIDE_SHARE, dominant_side, dominant_share
 
 
 def _build_calibration_buckets(evaluated: list[dict]) -> list[dict]:
