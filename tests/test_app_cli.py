@@ -46,5 +46,47 @@ class RefreshKnownHistoryCliTests(unittest.TestCase):
         self.assertEqual(json.loads(printed), {"countries_processed": 3})
 
 
+class FitModelCliTests(unittest.TestCase):
+    def test_parses_required_league_url(self) -> None:
+        args = app.build_parser().parse_args(["fit-model", "--league-url", "/England/UK1/"])
+        self.assertEqual(args.command, "fit-model")
+        self.assertEqual(args.league_url, "/England/UK1/")
+        self.assertEqual(args.min_matches, 30)
+        self.assertFalse(args.persist)
+
+    def test_main_dispatches_to_fit_league_model(self) -> None:
+        with mock.patch.object(
+            sys, "argv", ["app.py", "fit-model", "--league-url", "/England/UK1/"]
+        ), mock.patch("app.load_league_history_matches", return_value=[]) as mock_load, mock.patch(
+            "app.fit_league_model", return_value={"fitted": None, "validation": None}
+        ) as mock_fit:
+            exit_code = app.main()
+
+        self.assertEqual(exit_code, 0)
+        mock_load.assert_called_once_with("/England/UK1/", None)
+        mock_fit.assert_called_once_with([], min_matches=30)
+
+    def test_persist_flag_saves_fitted_parameters(self) -> None:
+        fitted = {"rho": -0.1, "home_goal_scale": 1.5}
+        with mock.patch.object(
+            sys, "argv", ["app.py", "fit-model", "--league-url", "/England/UK1/", "--persist"]
+        ), mock.patch("app.load_league_history_matches", return_value=[]), mock.patch(
+            "app.fit_league_model", return_value={"fitted": fitted, "validation": None}
+        ), mock.patch("app.update_league_tuning_parameters") as mock_update:
+            app.main()
+
+        mock_update.assert_called_once_with("/England/UK1/", fitted, None)
+
+    def test_persist_flag_is_a_no_op_when_the_fit_is_unavailable(self) -> None:
+        with mock.patch.object(
+            sys, "argv", ["app.py", "fit-model", "--league-url", "/England/UK1/", "--persist"]
+        ), mock.patch("app.load_league_history_matches", return_value=[]), mock.patch(
+            "app.fit_league_model", return_value={"fitted": None, "validation": None}
+        ), mock.patch("app.update_league_tuning_parameters") as mock_update:
+            app.main()
+
+        mock_update.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11,7 +11,12 @@ from soccer_ratings.client import (
 )
 from soccer_ratings.db import import_all_history, import_country_history
 from soccer_ratings.odds import (
+    DEFAULT_AWAY_GOAL_RATE,
+    DEFAULT_AWAY_GOAL_SCALE,
+    DEFAULT_HOME_GOAL_RATE,
+    DEFAULT_HOME_GOAL_SCALE,
     apply_shin_margin,
+    apply_temperature,
     build_btts_odds,
     build_dnb_odds,
     build_match_odds,
@@ -127,6 +132,104 @@ class OddsModelTests(unittest.TestCase):
         self.assertAlmostEqual(ah_probs["home"] + ah_probs["away"], 1.0, places=4)
         self.assertLess(ah_probs["home"], probs["home"])
         self.assertGreater(ah_probs["away"], probs["draw"] + probs["away"])
+
+
+class GoalCurveTests(unittest.TestCase):
+    """calculate_match_probabilities's rating->goals curve is exponential
+    and per-league-fittable (see soccer_ratings.tuning.fit_league_model),
+    replacing a linear map with hard caps. These check the module defaults
+    reproduce the old curve's anchor/slope at gap=0 and that per-league
+    curve parameters actually change the priced probabilities.
+    """
+
+    def test_default_curve_matches_the_retired_linear_map_at_zero_gap(self) -> None:
+        probabilities = calculate_match_probabilities(1500.0, 1500.0)
+
+        # The retired linear curve gave home=1.42/away=1.08 expected goals
+        # at an even matchup; the exponential defaults were chosen to
+        # reproduce that exactly (scale *is* the value at gap=0).
+        even_odds_curve = calculate_match_probabilities(
+            1500.0, 1500.0,
+            home_goal_scale=1.42, home_goal_rate=DEFAULT_HOME_GOAL_RATE,
+            away_goal_scale=1.08, away_goal_rate=DEFAULT_AWAY_GOAL_RATE,
+        )
+        self.assertEqual(probabilities, even_odds_curve)
+
+    def test_a_fitted_curve_changes_the_priced_probabilities(self) -> None:
+        default_probabilities = calculate_match_probabilities(1700.0, 1500.0)
+        steeper_curve_probabilities = calculate_match_probabilities(
+            1700.0, 1500.0,
+            home_goal_scale=DEFAULT_HOME_GOAL_SCALE,
+            home_goal_rate=300.0,  # much steeper than the default ~781
+            away_goal_scale=DEFAULT_AWAY_GOAL_SCALE,
+            away_goal_rate=DEFAULT_AWAY_GOAL_RATE,
+        )
+        self.assertNotEqual(default_probabilities, steeper_curve_probabilities)
+        self.assertGreater(steeper_curve_probabilities["home"], default_probabilities["home"])
+
+    def test_curve_has_no_hard_ceiling_unlike_the_retired_linear_map(self) -> None:
+        # The old map capped home expected goals at 3.2 and away at 0.30 —
+        # a big enough rating gap could never push the model's favorite
+        # probability any higher once that ceiling was hit. The exponential
+        # curve keeps responding (bounded only by the numerical safety net,
+        # far beyond any real rating gap).
+        moderate = calculate_match_probabilities(2000.0, 1500.0)
+        extreme = calculate_match_probabilities(2600.0, 1500.0)
+        self.assertGreater(extreme["home"], moderate["home"])
+
+    def test_build_match_odds_and_estimate_expected_goals_accept_curve_kwargs(self) -> None:
+        from soccer_ratings.odds import build_dnb_odds as _build_dnb_odds  # already imported above
+
+        curve_kwargs = dict(
+            home_goal_scale=1.5, home_goal_rate=650.0, away_goal_scale=1.0, away_goal_rate=850.0
+        )
+        odds = build_match_odds(1700.0, 1500.0, **curve_kwargs)
+        dnb_odds = _build_dnb_odds(1700.0, 1500.0, **curve_kwargs)
+        expected_goals = estimate_expected_goals(1700.0, 1500.0, **curve_kwargs)
+
+        self.assertGreater(odds["home"], 0.0)
+        self.assertGreater(dnb_odds["home"], 0.0)
+        self.assertGreater(expected_goals["home"], 0.0)
+
+
+class TemperatureScalingTests(unittest.TestCase):
+    def test_identity_at_temperature_one(self) -> None:
+        probabilities = {"home": 0.55, "draw": 0.25, "away": 0.20}
+        self.assertEqual(apply_temperature(probabilities, 1.0), probabilities)
+
+    def test_sharpens_the_favorite_below_one(self) -> None:
+        probabilities = {"home": 0.55, "draw": 0.25, "away": 0.20}
+        sharpened = apply_temperature(probabilities, 0.5)
+        self.assertGreater(sharpened["home"], probabilities["home"])
+        self.assertLess(sharpened["away"], probabilities["away"])
+
+    def test_flattens_toward_uniform_above_one(self) -> None:
+        probabilities = {"home": 0.55, "draw": 0.25, "away": 0.20}
+        flattened = apply_temperature(probabilities, 2.5)
+        self.assertLess(flattened["home"], probabilities["home"])
+        self.assertGreater(flattened["away"], probabilities["away"])
+
+    def test_never_flips_the_favorite(self) -> None:
+        probabilities = {"home": 0.42, "draw": 0.30, "away": 0.28}
+        for temperature in (0.2, 0.5, 0.8, 1.0, 1.5, 2.0, 3.0):
+            scaled = apply_temperature(probabilities, temperature)
+            self.assertEqual(max(scaled, key=scaled.get), "home")
+
+    def test_always_sums_to_one(self) -> None:
+        probabilities = {"home": 0.7, "draw": 0.2, "away": 0.1}
+        for temperature in (0.4, 1.0, 2.5):
+            scaled = apply_temperature(probabilities, temperature)
+            self.assertAlmostEqual(sum(scaled.values()), 1.0, places=3)
+
+    def test_non_positive_temperature_falls_back_to_identity(self) -> None:
+        probabilities = {"home": 0.5, "draw": 0.3, "away": 0.2}
+        self.assertEqual(apply_temperature(probabilities, 0.0), probabilities)
+        self.assertEqual(apply_temperature(probabilities, -1.0), probabilities)
+
+    def test_zero_probability_stays_zero(self) -> None:
+        probabilities = {"home": 0.8, "draw": 0.2, "away": 0.0}
+        scaled = apply_temperature(probabilities, 0.5)
+        self.assertEqual(scaled["away"], 0.0)
 
 
 class TeamComparisonTests(unittest.TestCase):

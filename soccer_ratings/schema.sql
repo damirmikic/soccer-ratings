@@ -20,6 +20,17 @@ CREATE TABLE IF NOT EXISTS leagues (
     weight_scale DOUBLE PRECISION,
     home_advantage DOUBLE PRECISION,
     rho DOUBLE PRECISION,
+    -- The exponential rating->goals curve fit per league by
+    -- soccer_ratings.tuning.fit_league_model (see odds._base_expected_goals).
+    -- NULL means "use the module defaults", same convention as the three
+    -- columns above.
+    home_goal_scale DOUBLE PRECISION,
+    home_goal_rate DOUBLE PRECISION,
+    away_goal_scale DOUBLE PRECISION,
+    away_goal_rate DOUBLE PRECISION,
+    -- Post-hoc recalibration of the raw model's own confidence (see
+    -- odds.apply_temperature). NULL means 1.0 (no-op), same convention.
+    temperature DOUBLE PRECISION,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

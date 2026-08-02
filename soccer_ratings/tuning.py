@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import math
+
 from .backtest import implied_probabilities_from_odds, match_outcome
 from .matchkeys import sort_matches_by_date
 from .odds import (
+    DEFAULT_AWAY_GOAL_RATE,
+    DEFAULT_AWAY_GOAL_SCALE,
+    DEFAULT_HOME_GOAL_RATE,
+    DEFAULT_HOME_GOAL_SCALE,
     DEFAULT_RHO,
+    DEFAULT_TEMPERATURE,
+    apply_temperature,
     calculate_match_probabilities,
     calibrate_probabilities_with_history,
     parse_date,
@@ -299,4 +307,440 @@ def sweep_league_parameters(
             "rho": DEFAULT_RHO,
             "avg_brier": round(baseline_brier, 4) if baseline_brier is not None else None,
         },
+    }
+
+
+# --- fit_league_model: continuous per-league fit of the goal curve, rho,
+# and a recalibration temperature, walk-forward-disciplined via a
+# chronological train/calibration/test split --------------------------------
+#
+# sweep_league_parameters above answers a narrower question (does trusting
+# league history more or less, at a few coarse home_advantage/rho grid
+# points, help the *history-calibrated* live-app model) with a fixed grid
+# and no held-out evaluation. fit_league_model fits the parameters
+# soccer_ratings.backtest.evaluate_match actually uses — the exponential
+# goal curve, rho, and a post-hoc temperature — continuously rather than
+# off a five-value rho grid, and reports Brier on a slice of matches none
+# of the fitting ever saw, so "the fit helped" is a claim about
+# generalization, not a claim about the very data it was fit to. See
+# fit_league_model's docstring for why home_advantage itself isn't in that
+# list — it's not an oversight.
+
+DEFAULT_RHO_BOUNDS = (-0.35, 0.15)
+DEFAULT_GOAL_RATE_BOUNDS = (80.0, 4000.0)
+DEFAULT_TEMPERATURE_BOUNDS = (0.4, 2.5)
+
+# Golden-section search shrinks the bracket by ~0.618x per iteration,
+# so 16 iterations narrows any of the bounds above to well under 0.1% of
+# their original width — far tighter than the data can actually resolve —
+# while keeping each fit fast enough to run across every imported league
+# in one background job.
+_GOLDEN_SECTION_ITERATIONS = 16
+
+_TRAIN_FRACTION = 0.70
+_CALIBRATION_FRACTION = 0.15
+# Below this many matches, a temperature fit is more likely to be chasing
+# split-specific noise than a real residual bias; temperature is left at
+# 1.0 (no-op) instead.
+_MIN_CALIBRATION_MATCHES = 10
+
+_GOLDEN_RATIO = (math.sqrt(5.0) - 1.0) / 2.0
+
+
+def _golden_section_minimize(
+    objective, lo: float, hi: float, *, iterations: int = _GOLDEN_SECTION_ITERATIONS
+) -> float:
+    """Minimize a scalar function assumed to be roughly unimodal on
+    [lo, hi], without derivatives or external dependencies.
+
+    Good enough for the objectives used here — Poisson negative
+    log-likelihood in one curve parameter, Brier score in rho or
+    home_advantage or temperature — which are smooth, single-basin
+    functions of one variable over a bounded, physically sensible range.
+    Not a general-purpose optimizer: it will settle on a local optimum for
+    a genuinely multi-modal objective, which none of these are expected to
+    be.
+    """
+    if hi <= lo:
+        return lo
+
+    a, b = float(lo), float(hi)
+    c = b - _GOLDEN_RATIO * (b - a)
+    d = a + _GOLDEN_RATIO * (b - a)
+    fc, fd = objective(c), objective(d)
+
+    for _ in range(iterations):
+        if fc < fd:
+            b, d, fd = d, c, fc
+            c = b - _GOLDEN_RATIO * (b - a)
+            fc = objective(c)
+        else:
+            a, c, fc = c, d, fd
+            d = a + _GOLDEN_RATIO * (b - a)
+            fd = objective(d)
+
+    return (a + b) / 2.0
+
+
+def _chronological_split(
+    matches: list[dict],
+    *,
+    train_fraction: float = _TRAIN_FRACTION,
+    calibration_fraction: float = _CALIBRATION_FRACTION,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Split already-completed matches into train/calibration/test slices in
+    date order — train fits the curve/rho/home_advantage, calibration fits
+    temperature, and test is untouched by any fitting, used only to report
+    how the fitted parameters do on matches they never influenced.
+    """
+    ordered = sort_matches_by_date(matches)
+    total = len(ordered)
+    train_end = min(total, round(total * train_fraction))
+    calibration_end = min(total, train_end + round(total * calibration_fraction))
+    return ordered[:train_end], ordered[train_end:calibration_end], ordered[calibration_end:]
+
+
+def _default_goal_curve() -> dict[str, float]:
+    return {
+        "home_goal_scale": DEFAULT_HOME_GOAL_SCALE,
+        "home_goal_rate": DEFAULT_HOME_GOAL_RATE,
+        "away_goal_scale": DEFAULT_AWAY_GOAL_SCALE,
+        "away_goal_rate": DEFAULT_AWAY_GOAL_RATE,
+    }
+
+
+def _fit_side_goal_curve(
+    gaps: list[float],
+    goals: list[int],
+    *,
+    fallback_scale: float,
+    fallback_rate: float,
+    rate_bounds: tuple[float, float] = DEFAULT_GOAL_RATE_BOUNDS,
+    iterations: int = _GOLDEN_SECTION_ITERATIONS,
+) -> tuple[float, float, float]:
+    """Poisson maximum-likelihood fit of lambda = scale * exp(gap / rate)
+    for one side (home or away — the caller negates gap for away, so this
+    one function handles both directions of the same curve shape).
+
+    For any fixed rate, the scale that maximizes Poisson log-likelihood has
+    a closed form (sum(goals) / sum(exp(gap/rate)) — set the derivative of
+    the log-likelihood with respect to scale to zero and solve), so only
+    rate needs a numerical search; scale is recomputed exactly at each
+    candidate rate golden-section tries.
+
+    Returns (scale, rate, negative_log_likelihood) — the third value lets
+    _fit_home_advantage_and_curve add the home and away fits' likelihoods
+    together without re-scoring either side from scratch.
+    """
+    total_goals = float(sum(goals))
+    if not gaps or total_goals <= 0:
+        return fallback_scale, fallback_rate, float("inf")
+
+    def negative_log_likelihood(rate: float) -> float:
+        if rate <= 0:
+            return float("inf")
+        exp_terms = [math.exp(gap / rate) for gap in gaps]
+        denominator = sum(exp_terms)
+        if denominator <= 0:
+            return float("inf")
+        scale = total_goals / denominator
+        nll = 0.0
+        for exp_term, observed in zip(exp_terms, goals):
+            lam = max(1e-9, scale * exp_term)
+            nll += lam - observed * math.log(lam)
+        return nll
+
+    best_rate = _golden_section_minimize(
+        negative_log_likelihood, rate_bounds[0], rate_bounds[1], iterations=iterations
+    )
+    exp_terms = [math.exp(gap / best_rate) for gap in gaps]
+    denominator = sum(exp_terms)
+    best_scale = total_goals / denominator if denominator > 0 else fallback_scale
+    return best_scale, best_rate, negative_log_likelihood(best_rate)
+
+
+def _fit_goal_curve_with_nll(
+    matches: list[dict],
+    *,
+    home_advantage: float,
+    rate_bounds: tuple[float, float] = DEFAULT_GOAL_RATE_BOUNDS,
+    iterations: int = _GOLDEN_SECTION_ITERATIONS,
+) -> tuple[dict[str, float], float]:
+    """Fit all four goal-curve parameters against real scorelines for a
+    candidate home_advantage, returning the fitted curve and the summed
+    home+away Poisson negative log-likelihood at that fit — the objective
+    _fit_home_advantage_and_curve searches over.
+
+    Home and away lambdas share the same rating gap (shifted by
+    home_advantage) but scale in opposite directions, so the away side
+    reuses _fit_side_goal_curve on the negated gap rather than duplicating
+    the fit.
+    """
+    home_gaps: list[float] = []
+    home_goals: list[int] = []
+    away_gaps: list[float] = []
+    away_goals: list[int] = []
+
+    for match in matches:
+        home_rating = match.get("home_rating")
+        away_rating = match.get("away_rating")
+        goals_for = match.get("home_goals")
+        goals_against = match.get("away_goals")
+        if None in (home_rating, away_rating, goals_for, goals_against):
+            continue
+        gap = float(home_rating) - float(away_rating) + home_advantage
+        home_gaps.append(gap)
+        home_goals.append(int(goals_for))
+        away_gaps.append(-gap)
+        away_goals.append(int(goals_against))
+
+    home_scale, home_rate, home_nll = _fit_side_goal_curve(
+        home_gaps,
+        home_goals,
+        fallback_scale=DEFAULT_HOME_GOAL_SCALE,
+        fallback_rate=DEFAULT_HOME_GOAL_RATE,
+        rate_bounds=rate_bounds,
+        iterations=iterations,
+    )
+    away_scale, away_rate, away_nll = _fit_side_goal_curve(
+        away_gaps,
+        away_goals,
+        fallback_scale=DEFAULT_AWAY_GOAL_SCALE,
+        fallback_rate=DEFAULT_AWAY_GOAL_RATE,
+        rate_bounds=rate_bounds,
+        iterations=iterations,
+    )
+    curve = {
+        "home_goal_scale": home_scale,
+        "home_goal_rate": home_rate,
+        "away_goal_scale": away_scale,
+        "away_goal_rate": away_rate,
+    }
+    return curve, home_nll + away_nll
+
+
+def _fit_goal_curve(
+    matches: list[dict],
+    *,
+    home_advantage: float,
+    rate_bounds: tuple[float, float] = DEFAULT_GOAL_RATE_BOUNDS,
+    iterations: int = _GOLDEN_SECTION_ITERATIONS,
+) -> dict[str, float]:
+    """Fit the goal curve for a *given* home_advantage — see
+    _fit_goal_curve_with_nll for the scored version this wraps, used when
+    only the fitted parameters are needed (e.g. re-deriving the curve for
+    an already-chosen home_advantage).
+    """
+    curve, _ = _fit_goal_curve_with_nll(
+        matches, home_advantage=home_advantage, rate_bounds=rate_bounds, iterations=iterations
+    )
+    return curve
+
+
+def _brier_for_model_params(
+    matches: list[dict],
+    *,
+    home_advantage: float,
+    rho: float,
+    curve: dict[str, float],
+    temperature: float = DEFAULT_TEMPERATURE,
+) -> float | None:
+    """Average Brier score of the exact pipeline
+    soccer_ratings.backtest.evaluate_match uses for its "raw model" —
+    calculate_match_probabilities then apply_temperature, no market blend,
+    no history calibration — under a candidate parameter set. This is the
+    objective every fit in this module ultimately optimizes.
+    """
+    total = 0.0
+    count = 0
+    for match in matches:
+        home_rating = match.get("home_rating")
+        away_rating = match.get("away_rating")
+        home_goals = match.get("home_goals")
+        away_goals = match.get("away_goals")
+        if None in (home_rating, away_rating, home_goals, away_goals):
+            continue
+        probabilities = calculate_match_probabilities(
+            float(home_rating),
+            float(away_rating),
+            home_advantage=home_advantage,
+            rho=rho,
+            **curve,
+        )
+        probabilities = apply_temperature(probabilities, temperature)
+        outcome = match_outcome(int(home_goals), int(away_goals))
+        total += _brier_score(probabilities, outcome)
+        count += 1
+    return total / count if count else None
+
+
+def _fit_rho(
+    matches: list[dict],
+    *,
+    home_advantage: float,
+    curve: dict[str, float],
+    bounds: tuple[float, float] = DEFAULT_RHO_BOUNDS,
+    iterations: int = _GOLDEN_SECTION_ITERATIONS,
+) -> float:
+    """rho only reshapes the four low-score cells of the score grid (see
+    odds._dixon_coles_tau), so unlike the goal curve it has no Poisson
+    closed form of its own — it's fit by golden-section search directly on
+    Brier score, the same objective the rest of this module reports.
+    """
+
+    def objective(candidate_rho: float) -> float:
+        brier = _brier_for_model_params(
+            matches, home_advantage=home_advantage, rho=candidate_rho, curve=curve
+        )
+        return brier if brier is not None else float("inf")
+
+    return _golden_section_minimize(objective, bounds[0], bounds[1], iterations=iterations)
+
+
+def fit_league_model(
+    matches: list[dict],
+    *,
+    min_matches: int = DEFAULT_MIN_MATCHES,
+    rho_bounds: tuple[float, float] = DEFAULT_RHO_BOUNDS,
+    goal_rate_bounds: tuple[float, float] = DEFAULT_GOAL_RATE_BOUNDS,
+    temperature_bounds: tuple[float, float] = DEFAULT_TEMPERATURE_BOUNDS,
+) -> dict:
+    """Fit the four goal-curve parameters and rho on a training slice, fit
+    a recalibration temperature on a following calibration slice, and
+    report Brier on a final test slice none of the fitting ever saw — the
+    train/calibration/test split soccer_ratings.backtest itself cannot
+    provide, since it exists to grade a model against history it wasn't
+    fit on, not to do the fitting.
+
+    home_advantage is deliberately *not* fit here, and always comes back
+    0.0. This isn't an omission: in calculate_match_probabilities,
+    home_advantage only ever appears as an additive shift folded into the
+    same "gap" that feeds both home_goal_scale*exp(gap/rate) and
+    away_goal_scale*exp(-gap/rate) — and once scale and rate are both free
+    per side (which fitting the curve requires), that shift is exactly,
+    algebraically absorbable into home_goal_scale and away_goal_scale.
+    "Exactly" isn't a figure of speech: the Poisson log-likelihood of the
+    training goals is provably identical for every home_advantage once the
+    curve is refit at each one — verified against a synthetic league with a
+    known home_advantage, where the fitted goals log-likelihood came back
+    bit-for-bit equal from 0 all the way to the search bound, and the
+    "best" home_advantage golden-section returned was arbitrary noise
+    depending on where the search happened to bracket, not a real fit. A
+    downstream Brier objective doesn't rescue it either: holding a curve
+    fixed and searching home_advantage on top just reproduces whatever
+    home_advantage the curve was fit at in the first place, because
+    shifting home_advantage while leaving the curve fixed is (to first
+    order) the same reparameterization the curve fit already explored.
+    home_advantage and the curve's home/away scale asymmetry are the same
+    degree of freedom in this model, not two.
+
+    The curve fit already delivers what a per-league home_advantage was
+    meant to: home_goal_scale/away_goal_scale, fit fresh per league,
+    *is* a continuous, per-league measure of home advantage — expressed as
+    a goal-scoring asymmetry rather than a single rating-point constant,
+    which is a strictly richer representation (see the ratio between the
+    two climb with a league's true home-field strength in the identity
+    check this design replaced). tuning_params["home_advantage"] is kept
+    in the schema and still respected by evaluate_match and
+    compare_teams_from_ratings as a manual override for anyone who wants
+    to layer an explicit further nudge on top — fit_league_model simply
+    doesn't try to compute one automatically, because there is no
+    identifiable value to compute.
+
+    rho is fit afterward, by Brier score rather than Poisson likelihood:
+    unlike home_advantage, it only reshapes the four low-score cells of
+    the discrete outcome distribution (see odds._dixon_coles_tau) and
+    doesn't share a degree of freedom with the goal curve, so it has no
+    equivalent identifiability problem.
+
+    Returns "fitted": None if there isn't enough history to trust a fit
+    (below min_matches, same guard sweep_league_parameters uses); otherwise
+    the fitted parameters, ready to hand to
+    soccer_ratings.db.update_league_tuning_parameters, plus "validation":
+    out-of-sample Brier for the fit against the module defaults, or None if
+    the split left no test matches at all.
+    """
+    completed = [
+        match
+        for match in matches
+        if match.get("home_goals") is not None
+        and match.get("away_goals") is not None
+        and match.get("home_rating") is not None
+        and match.get("away_rating") is not None
+    ]
+    unavailable = {
+        "matches_available": len(completed),
+        "min_matches_required": min_matches,
+        "train_matches": 0,
+        "calibration_matches": 0,
+        "test_matches": 0,
+        "train_avg_brier": None,
+        "fitted": None,
+        "validation": None,
+    }
+    if len(completed) < min_matches:
+        return unavailable
+
+    train, calibration, test = _chronological_split(completed)
+    if len(train) < min_matches:
+        return unavailable
+
+    best_home_advantage = 0.0
+    best_curve = _fit_goal_curve(train, home_advantage=best_home_advantage, rate_bounds=goal_rate_bounds)
+    best_rho = _fit_rho(train, home_advantage=best_home_advantage, curve=best_curve, bounds=rho_bounds)
+    train_brier = _brier_for_model_params(
+        train, home_advantage=best_home_advantage, rho=best_rho, curve=best_curve
+    )
+
+    temperature = DEFAULT_TEMPERATURE
+    if len(calibration) >= _MIN_CALIBRATION_MATCHES:
+
+        def temperature_objective(candidate_temperature: float) -> float:
+            brier = _brier_for_model_params(
+                calibration,
+                home_advantage=best_home_advantage,
+                rho=best_rho,
+                curve=best_curve,
+                temperature=candidate_temperature,
+            )
+            return brier if brier is not None else float("inf")
+
+        temperature = _golden_section_minimize(
+            temperature_objective, temperature_bounds[0], temperature_bounds[1]
+        )
+
+    fitted = {
+        "home_advantage": round(best_home_advantage, 2),
+        "rho": round(best_rho, 4),
+        "temperature": round(temperature, 4),
+        **{key: round(value, 4) for key, value in best_curve.items()},
+    }
+
+    validation = None
+    if test:
+        fitted_test_brier = _brier_for_model_params(
+            test, home_advantage=best_home_advantage, rho=best_rho, curve=best_curve, temperature=temperature
+        )
+        default_test_brier = _brier_for_model_params(
+            test, home_advantage=0.0, rho=DEFAULT_RHO, curve=_default_goal_curve()
+        )
+        improvement = None
+        if fitted_test_brier is not None and default_test_brier is not None:
+            improvement = round(default_test_brier - fitted_test_brier, 4)
+        validation = {
+            "test_matches": len(test),
+            "fitted_avg_brier": round(fitted_test_brier, 4) if fitted_test_brier is not None else None,
+            "default_avg_brier": round(default_test_brier, 4) if default_test_brier is not None else None,
+            "improvement": improvement,
+        }
+
+    return {
+        "matches_available": len(completed),
+        "min_matches_required": min_matches,
+        "train_matches": len(train),
+        "calibration_matches": len(calibration),
+        "test_matches": len(test),
+        "train_avg_brier": round(train_brier, 4) if train_brier is not None else None,
+        "fitted": fitted,
+        "validation": validation,
     }

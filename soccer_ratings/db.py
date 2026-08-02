@@ -19,7 +19,7 @@ from .client import (
     league_code_from_url,
 )
 from .env import load_env_file
-from .tuning import DEFAULT_MIN_MATCHES, DEFAULT_WEIGHT_SCALES, summarize_league_sweeps, sweep_weight_scales, sweep_league_parameters
+from .tuning import DEFAULT_MIN_MATCHES, fit_league_model
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 load_env_file()
@@ -120,7 +120,20 @@ def init_db(database_url: str | None = None) -> None:
         # model moved to a Dixon-Coles score grid, see soccer_ratings.odds)
         # but left in place rather than dropped, since existing rows may
         # still carry tuned values from before the migration.
-        for col in ("elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale", "home_advantage", "rho"):
+        for col in (
+            "elo_divisor",
+            "draw_max",
+            "draw_divisor",
+            "draw_min",
+            "weight_scale",
+            "home_advantage",
+            "rho",
+            "home_goal_scale",
+            "home_goal_rate",
+            "away_goal_scale",
+            "away_goal_rate",
+            "temperature",
+        ):
             cur.execute(f"ALTER TABLE leagues ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION;")
         # Rows imported before this column existed keep a NULL capture time;
         # the backtest reports those as "unverifiable" rather than assuming
@@ -498,73 +511,85 @@ def list_all_imported_leagues(database_url: str | None = None) -> list[dict]:
 def run_calibration_sweep(
     database_url: str | None = None,
     *,
-    weight_scales: tuple[float, ...] = DEFAULT_WEIGHT_SCALES,
     min_matches: int = DEFAULT_MIN_MATCHES,
     on_progress: Callable[[int, int, str], None] | None = None,
     persist: bool = True,
 ) -> dict:
-    """Runs soccer_ratings.tuning's sweep_league_parameters sweep against every
-    imported league's stored history, persists the tuned parameters to the DB,
-    and rolls the per-league results up into a single across-leagues recommendation.
+    """Runs soccer_ratings.tuning's fit_league_model against every imported
+    league's stored history — the goal curve, rho, and a recalibration
+    temperature, continuously fit and validated on a held-out slice, for
+    the exact pipeline soccer_ratings.backtest.evaluate_match runs —
+    persists the fitted parameters, and rolls the per-league results up
+    into a single across-leagues recommendation.
+
+    This used to run soccer_ratings.tuning.sweep_league_parameters, a fixed
+    grid (weight_scale x 3 home_advantage values x 5 rho values) evaluated
+    against the *history-calibrated* model compare_teams_from_ratings uses,
+    which isn't the model this app actually bets with — sweep_league_parameters
+    is kept for that live-app history-calibration question (still reachable via
+    the `tune-calibration` CLI command) but is no longer what keeps a league's
+    stored tuning parameters up to date, since it was never fitting the thing
+    being graded.
     """
     leagues = list_all_imported_leagues(database_url)
     total = len(leagues)
-    league_sweeps: list[dict] = []
+    league_fits: list[dict] = []
 
     for index, league in enumerate(leagues, start=1):
         league_path = league["league_path"]
         matches = load_league_history_matches(league_path, database_url)
-        sweep = sweep_league_parameters(matches, weight_scales=weight_scales, min_matches=min_matches)
+        fit = fit_league_model(matches, min_matches=min_matches)
 
-        best = sweep.get("best")
-        if best and persist:
+        fitted = fit.get("fitted")
+        if fitted and persist:
             try:
-                update_league_tuning_parameters(league_path, best, database_url)
+                update_league_tuning_parameters(league_path, fitted, database_url)
             except Exception as exc:
                 logger.warning(
-                    "Failed to save tuned parameters for %s (%s: %s)",
+                    "Failed to save fitted model parameters for %s (%s: %s)",
                     league_path,
                     type(exc).__name__,
                     exc,
                 )
 
-        league_sweeps.append(
+        league_fits.append(
             {
                 "league": league["league"],
                 "league_path": league_path,
                 "country": league["country"],
-                "default_avg_brier": sweep["default"]["avg_brier"] if sweep.get("default") else None,
-                **sweep,
+                **fit,
             }
         )
         if on_progress:
             on_progress(index, total, league["league"] or league_path)
 
-    evaluated = [row for row in league_sweeps if row["best"] is not None]
-    skipped = [row for row in league_sweeps if row["best"] is None]
+    evaluated = [row for row in league_fits if row["fitted"] is not None]
+    skipped = [row for row in league_fits if row["fitted"] is None]
 
     summary = None
     if evaluated:
-        # Roll up median weight scale for summary
-        best_scales = sorted(row["best"]["weight_scale"] for row in evaluated)
-        count = len(best_scales)
-        median_best_scale = (
-            best_scales[count // 2]
+        rhos = sorted(row["fitted"]["rho"] for row in evaluated)
+        count = len(rhos)
+        median_rho = (
+            rhos[count // 2]
             if count % 2 == 1
-            else (best_scales[count // 2 - 1] + best_scales[count // 2]) / 2.0
+            else (rhos[count // 2 - 1] + rhos[count // 2]) / 2.0
         )
 
-        improvements = []
-        for row in evaluated:
-            if row["default"] and row["default"]["avg_brier"] is not None and row["best"]["avg_brier"] is not None:
-                improvements.append(row["default"]["avg_brier"] - row["best"]["avg_brier"])
-
+        # Out-of-sample, not the training Brier the old grid sweep compared —
+        # "did the fit generalize" rather than "did it fit its own data".
+        improvements = [
+            row["validation"]["improvement"]
+            for row in evaluated
+            if row.get("validation") and row["validation"]["improvement"] is not None
+        ]
         avg_brier_improvement = sum(improvements) / len(improvements) if improvements else None
 
         summary = {
             "leagues_evaluated": count,
-            "median_best_weight_scale": round(median_best_scale, 3) if median_best_scale is not None else None,
-            "avg_brier_improvement_vs_default": (
+            "leagues_with_validation": len(improvements),
+            "median_rho": round(median_rho, 4),
+            "avg_out_of_sample_brier_improvement_vs_default": (
                 round(avg_brier_improvement, 4) if avg_brier_improvement is not None else None
             ),
         }
@@ -863,6 +888,26 @@ def load_country_leagues(country_url: str, database_url: str | None = None) -> l
     return results
 
 
+# Every column load_league_tuning_parameters can return and
+# update_league_tuning_parameters can write. Two independent sweeps persist
+# through this: sweep_league_parameters (weight_scale/home_advantage/rho,
+# for the history-calibrated live-app model) and
+# soccer_ratings.tuning.fit_league_model (the goal curve, rho, and
+# temperature, for the model soccer_ratings.backtest.evaluate_match runs).
+# Both call update_league_tuning_parameters with only the keys *they*
+# computed — see its docstring for why that has to stay a partial update.
+_TUNING_PARAM_COLUMNS = (
+    "weight_scale",
+    "home_advantage",
+    "rho",
+    "home_goal_scale",
+    "home_goal_rate",
+    "away_goal_scale",
+    "away_goal_rate",
+    "temperature",
+)
+
+
 def load_league_tuning_parameters(
     league_url: str,
     database_url: str | None = None,
@@ -870,8 +915,8 @@ def load_league_tuning_parameters(
     path = _path_from_url(league_url)
     with db_cursor(database_url, use_direct=False) as (_, cur):
         cur.execute(
-            """
-            SELECT weight_scale, home_advantage, rho
+            f"""
+            SELECT {", ".join(_TUNING_PARAM_COLUMNS)}
             FROM leagues
             WHERE league_path = %s
             """,
@@ -881,9 +926,8 @@ def load_league_tuning_parameters(
         if not row:
             return None
 
-        keys = ["weight_scale", "home_advantage", "rho"]
         params = {}
-        for key, val in zip(keys, row):
+        for key, val in zip(_TUNING_PARAM_COLUMNS, row):
             if val is not None:
                 params[key] = float(val)
         return params
@@ -894,23 +938,34 @@ def update_league_tuning_parameters(
     params: dict[str, float],
     database_url: str | None = None,
 ) -> None:
+    """Persist whichever of _TUNING_PARAM_COLUMNS are present in params,
+    leaving every other tuning column exactly as stored.
+
+    This has to be a partial update, not a full overwrite of all eight
+    columns every time: sweep_league_parameters only ever computes
+    weight_scale/home_advantage/rho, and fit_league_model only ever
+    computes the goal curve/rho/temperature (home_advantage isn't
+    identifiable jointly with a freely-fit curve — see its docstring — so
+    it never appears in that dict at all). Whichever ran most recently
+    would silently null out the other's columns if this issued a single
+    UPDATE ... SET column = %s for all eight regardless of what params
+    actually contains.
+    """
+    present_columns = [column for column in _TUNING_PARAM_COLUMNS if column in params]
+    if not present_columns:
+        return
+
     path = _path_from_url(league_url)
+    set_clause = ", ".join(f"{column} = %s" for column in present_columns)
+    values = [params[column] for column in present_columns]
     with db_cursor(database_url, use_direct=True) as (conn, cur):
         cur.execute(
-            """
+            f"""
             UPDATE leagues
-            SET weight_scale = %s,
-                home_advantage = %s,
-                rho = %s,
-                updated_at = NOW()
+            SET {set_clause}, updated_at = NOW()
             WHERE league_path = %s
             """,
-            (
-                params.get("weight_scale"),
-                params.get("home_advantage"),
-                params.get("rho"),
-                path,
-            ),
+            (*values, path),
         )
         conn.commit()
 
