@@ -4,6 +4,7 @@ services:
     runtime: python
     plan: starter
     buildCommand: pip install -r requirements.txt
+    preDeployCommand: python3 app.py init-db
     startCommand: uvicorn soccer_ratings.webapp:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeploy: true
