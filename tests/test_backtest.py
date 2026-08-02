@@ -193,14 +193,19 @@ class RunLeagueBacktestTests(unittest.TestCase):
             (1750.0, 2250.0, 1.7, 3.5, 2.5),
             (1700.0, 2300.0, 1.6, 3.6, 2.6),
         ]
+        # Distinct fixtures, not repeats of one: run_league_backtest
+        # collapses duplicates, so reusing the default teams would count as
+        # a single match rather than five separate bets.
         matches = [
             make_match(
+                home_team=f"Home {index} FC",
                 home_rating=hr, away_rating=ar, home_odds=ho, draw_odds=do, away_odds=ao,
                 home_goals=0, away_goals=1, result="0:1",
             )
-            for hr, ar, ho, do, ao in away_biased
+            for index, (hr, ar, ho, do, ao) in enumerate(away_biased)
         ] + [
             make_match(
+                home_team="Favourite FC",
                 home_rating=2500.0, away_rating=1900.0, home_odds=2.2, draw_odds=3.4, away_odds=3.0,
                 home_goals=2, away_goals=0, result="2:0",
             )
@@ -246,6 +251,132 @@ class RunLeagueBacktestTests(unittest.TestCase):
         result = run_league_backtest(matches, market_weight=1.0)
 
         self.assertEqual(result["avg_brier"], result["avg_market_brier"])
+
+
+class BacktestDedupeTests(unittest.TestCase):
+    """A fixture arriving more than once must not be scored more than once —
+    duplicates were inflating stakes, profit, and calibration weight.
+    """
+
+    def test_repeated_fixture_is_scored_once_and_reported(self) -> None:
+        result = run_league_backtest([make_match(), make_match(), make_match()])
+
+        self.assertEqual(result["matches_evaluated"], 1)
+        self.assertEqual(result["duplicates_dropped"], 2)
+
+    def test_clean_history_reports_no_duplicates(self) -> None:
+        result = run_league_backtest([make_match(home_team="A"), make_match(home_team="B")])
+
+        self.assertEqual(result["matches_evaluated"], 2)
+        self.assertEqual(result["duplicates_dropped"], 0)
+
+    def test_duplicates_do_not_multiply_staked_or_profit(self) -> None:
+        single = run_league_backtest([make_match()], market_weight=0.0, edge_threshold_percent=0.0)
+        tripled = run_league_backtest(
+            [make_match()] * 3, market_weight=0.0, edge_threshold_percent=0.0
+        )
+
+        self.assertEqual(tripled["total_staked"], single["total_staked"])
+        self.assertEqual(tripled["total_profit"], single["total_profit"])
+        self.assertEqual(tripled["value_bet_count"], single["value_bet_count"])
+
+    def test_duplicates_differing_only_in_name_formatting_still_collapse(self) -> None:
+        result = run_league_backtest(
+            [make_match(home_team="Home FC"), make_match(home_team="  home   fc ")]
+        )
+
+        self.assertEqual(result["matches_evaluated"], 1)
+        self.assertEqual(result["duplicates_dropped"], 1)
+
+    def test_empty_summary_still_carries_the_counter(self) -> None:
+        result = run_league_backtest([])
+
+        self.assertEqual(result["duplicates_dropped"], 0)
+
+
+class RatingsAsOfReportTests(unittest.TestCase):
+    """The backtest scores every match with the ratings stored on its row, on
+    the assumption they predate kickoff. This makes that assumption checkable
+    rather than implicit.
+    """
+
+    def test_ratings_written_before_kickoff_are_verified(self) -> None:
+        result = run_league_backtest(
+            [make_match(rating_captured_at="2023-01-31T18:00:00+00:00")]
+        )
+        report = result["ratings_as_of"]
+
+        self.assertEqual(report["verified_before_kickoff"], 1)
+        self.assertEqual(report["captured_after_kickoff"], 0)
+        self.assertTrue(report["trustworthy"])
+        self.assertEqual(report["warnings"], [])
+
+    def test_ratings_written_long_after_kickoff_are_flagged(self) -> None:
+        result = run_league_backtest(
+            [make_match(rating_captured_at="2024-06-01T12:00:00+00:00")]
+        )
+        report = result["ratings_as_of"]
+
+        self.assertEqual(report["captured_after_kickoff"], 1)
+        self.assertFalse(report["trustworthy"])
+        self.assertTrue(any("after kickoff" in warning for warning in report["warnings"]))
+
+    def test_same_day_capture_is_within_grace(self) -> None:
+        # An overnight import of an evening fixture still carries pre-match
+        # ratings; a day of slack keeps that from reading as leakage.
+        result = run_league_backtest(
+            [make_match(rating_captured_at="2023-02-01T23:30:00+00:00")]
+        )
+
+        self.assertEqual(result["ratings_as_of"]["verified_before_kickoff"], 1)
+
+    def test_missing_capture_time_is_unknown_not_trustworthy(self) -> None:
+        result = run_league_backtest([make_match()])
+        report = result["ratings_as_of"]
+
+        self.assertEqual(report["unknown"], 1)
+        self.assertEqual(report["verified_before_kickoff"], 0)
+        self.assertFalse(report["trustworthy"])
+        self.assertTrue(any("cannot be verified" in warning for warning in report["warnings"]))
+
+    def test_accepts_datetime_objects_from_the_database(self) -> None:
+        from datetime import datetime, timezone
+
+        result = run_league_backtest(
+            [make_match(rating_captured_at=datetime(2023, 1, 30, tzinfo=timezone.utc))]
+        )
+
+        self.assertEqual(result["ratings_as_of"]["verified_before_kickoff"], 1)
+
+    def test_naive_datetimes_are_treated_as_utc_not_rejected(self) -> None:
+        from datetime import datetime
+
+        result = run_league_backtest(
+            [make_match(rating_captured_at=datetime(2023, 1, 30, 9, 0))]
+        )
+
+        self.assertEqual(result["ratings_as_of"]["verified_before_kickoff"], 1)
+
+    def test_unparseable_capture_time_counts_as_unknown(self) -> None:
+        result = run_league_backtest([make_match(rating_captured_at="not-a-timestamp")])
+
+        self.assertEqual(result["ratings_as_of"]["unknown"], 1)
+
+    def test_mixed_history_counts_each_category(self) -> None:
+        result = run_league_backtest(
+            [
+                make_match(home_team="A", rating_captured_at="2023-01-30T00:00:00+00:00"),
+                make_match(home_team="B", rating_captured_at="2024-06-01T00:00:00+00:00"),
+                make_match(home_team="C"),
+            ]
+        )
+        report = result["ratings_as_of"]
+
+        self.assertEqual(report["matches"], 3)
+        self.assertEqual(report["verified_before_kickoff"], 1)
+        self.assertEqual(report["captured_after_kickoff"], 1)
+        self.assertEqual(report["unknown"], 1)
+        self.assertFalse(report["trustworthy"])
 
 
 if __name__ == "__main__":

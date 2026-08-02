@@ -122,6 +122,10 @@ def init_db(database_url: str | None = None) -> None:
         # still carry tuned values from before the migration.
         for col in ("elo_divisor", "draw_max", "draw_divisor", "draw_min", "weight_scale", "home_advantage", "rho"):
             cur.execute(f"ALTER TABLE leagues ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION;")
+        # Rows imported before this column existed keep a NULL capture time;
+        # the backtest reports those as "unverifiable" rather than assuming
+        # their ratings predate kickoff.
+        cur.execute("ALTER TABLE matches ADD COLUMN IF NOT EXISTS rating_captured_at TIMESTAMPTZ;")
         conn.commit()
 
 
@@ -253,9 +257,10 @@ def import_league_history(league_url: str, database_url: str | None = None) -> d
                     away_goals,
                     result_text,
                     source_team_id,
-                    source_team_path
+                    source_team_path,
+                    rating_captured_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (match_date, competition, home_team_id, away_team_id)
                 DO UPDATE SET
                     home_odds = EXCLUDED.home_odds,
@@ -268,6 +273,15 @@ def import_league_history(league_url: str, database_url: str | None = None) -> d
                     result_text = EXCLUDED.result_text,
                     source_team_id = EXCLUDED.source_team_id,
                     source_team_path = EXCLUDED.source_team_path,
+                    -- Re-stamped only when the ratings themselves change, so
+                    -- an unrelated re-import (odds/result refresh) doesn't
+                    -- make as-of-match ratings look retroactively written.
+                    rating_captured_at = CASE
+                        WHEN matches.home_rating IS DISTINCT FROM EXCLUDED.home_rating
+                          OR matches.away_rating IS DISTINCT FROM EXCLUDED.away_rating
+                        THEN NOW()
+                        ELSE matches.rating_captured_at
+                    END,
                     updated_at = NOW()
                 """,
                 (
@@ -579,6 +593,85 @@ def _compute_match_derived_fields(home_goals: int | None, away_goals: int | None
     return total_goals, winner, btts
 
 
+# One row per real fixture, chosen by the database rather than by luck of
+# join order. Duplicate `teams` rows (same club, two team_paths) each spawn
+# their own `matches` row — the matches unique constraint keys on team *id*,
+# so it cannot see them as the same fixture — and every duplicate that
+# reaches a backtest multiplies that match's stake, profit, and calibration
+# weight. DISTINCT ON collapses them on normalized team *names* --
+# lowercased, trimmed, and with internal whitespace runs collapsed, so the
+# normalization matches matchkeys.normalize_name exactly. (btrim alone is
+# not enough: it leaves "home   fc" distinct from "home fc".)
+#
+# The ORDER BY inside DISTINCT ON is the snapshot rule: prefer a settled
+# result, then a usable price, then the most recently written row (the
+# closest stand-in for closing odds the stored data offers).
+_ONE_ROW_PER_FIXTURE_SELECT = r"""
+            SELECT DISTINCT ON (
+                m.match_date,
+                m.competition,
+                regexp_replace(lower(btrim(home_team.name)), '\s+', ' ', 'g'),
+                regexp_replace(lower(btrim(away_team.name)), '\s+', ' ', 'g')
+            )
+                m.match_date,
+                m.competition,
+                home_team.name AS home_team,
+                away_team.name AS away_team,
+                m.home_odds,
+                m.draw_odds,
+                m.away_odds,
+                m.home_rating,
+                m.away_rating,
+                m.home_goals,
+                m.away_goals,
+                m.rating_captured_at,
+                m.id
+            FROM matches m
+            JOIN teams home_team ON home_team.id = m.home_team_id
+            JOIN teams away_team ON away_team.id = m.away_team_id
+"""
+
+_ONE_ROW_PER_FIXTURE_ORDER = r"""
+            ORDER BY
+                m.match_date DESC,
+                m.competition,
+                regexp_replace(lower(btrim(home_team.name)), '\s+', ' ', 'g'),
+                regexp_replace(lower(btrim(away_team.name)), '\s+', ' ', 'g'),
+                (m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL) DESC,
+                (m.home_odds > 0 AND m.draw_odds > 0 AND m.away_odds > 0) DESC,
+                m.id DESC
+"""
+
+
+def _history_row_to_match(row) -> dict:
+    """Shape one _ONE_ROW_PER_FIXTURE_SELECT row into the match dict the
+    rest of the app consumes.
+    """
+    total_goals, winner, btts = _compute_match_derived_fields(row[9], row[10])
+    return {
+        "date": row[0].strftime("%d.%m.%y"),
+        "competition": row[1],
+        "home_team": row[2],
+        "away_team": row[3],
+        "home_odds": float(row[4]),
+        "draw_odds": float(row[5]),
+        "away_odds": float(row[6]),
+        "home_rating": float(row[7]),
+        "away_rating": float(row[8]),
+        "home_goals": row[9],
+        "away_goals": row[10],
+        "result": f"{row[9]}-{row[10]}" if row[9] is not None and row[10] is not None else None,
+        "total_goals": total_goals,
+        "winner": winner,
+        "btts?": btts,
+        # Carried so the backtest can check the stored ratings predate
+        # kickoff, and so any duplicate that still slips through is
+        # collapsed deterministically rather than by list order.
+        "rating_captured_at": row[11],
+        "row_id": row[12],
+    }
+
+
 def load_league_history_matches(
     league_url: str,
     database_url: str | None = None,
@@ -591,53 +684,17 @@ def load_league_history_matches(
 
     with db_cursor(database_url, use_direct=False) as (_, cur):
         cur.execute(
-            """
-            SELECT
-                m.match_date,
-                m.competition,
-                home_team.name AS home_team,
-                away_team.name AS away_team,
-                m.home_odds,
-                m.draw_odds,
-                m.away_odds,
-                m.home_rating,
-                m.away_rating,
-                m.home_goals,
-                m.away_goals
-            FROM matches m
-            JOIN teams home_team ON home_team.id = m.home_team_id
-            JOIN teams away_team ON away_team.id = m.away_team_id
+            f"""
+            {_ONE_ROW_PER_FIXTURE_SELECT}
             WHERE m.competition = %s
               AND (%s::bool = FALSE OR (m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL))
-            ORDER BY m.match_date DESC, m.id DESC
+            {_ONE_ROW_PER_FIXTURE_ORDER}
             """,
             (competition, completed_only),
         )
         rows = cur.fetchall()
 
-    matches = []
-    for row in rows:
-        total_goals, winner, btts = _compute_match_derived_fields(row[9], row[10])
-        matches.append(
-            {
-                "date": row[0].strftime("%d.%m.%y"),
-                "competition": row[1],
-                "home_team": row[2],
-                "away_team": row[3],
-                "home_odds": float(row[4]),
-                "draw_odds": float(row[5]),
-                "away_odds": float(row[6]),
-                "home_rating": float(row[7]),
-                "away_rating": float(row[8]),
-                "home_goals": row[9],
-                "away_goals": row[10],
-                "result": f"{row[9]}-{row[10]}" if row[9] is not None and row[10] is not None else None,
-                "total_goals": total_goals,
-                "winner": winner,
-                "btts?": btts,
-            }
-        )
-    return matches
+    return [_history_row_to_match(row) for row in rows]
 
 
 def load_all_history_matches(
@@ -649,53 +706,17 @@ def load_all_history_matches(
     comp_code = competition.upper() if competition else None
     with db_cursor(database_url, use_direct=False) as (_, cur):
         cur.execute(
-            """
-            SELECT
-                m.match_date,
-                m.competition,
-                home_team.name AS home_team,
-                away_team.name AS away_team,
-                m.home_odds,
-                m.draw_odds,
-                m.away_odds,
-                m.home_rating,
-                m.away_rating,
-                m.home_goals,
-                m.away_goals
-            FROM matches m
-            JOIN teams home_team ON home_team.id = m.home_team_id
-            JOIN teams away_team ON away_team.id = m.away_team_id
+            f"""
+            {_ONE_ROW_PER_FIXTURE_SELECT}
             WHERE (%s::text IS NULL OR m.competition = %s::text)
               AND (%s::bool = FALSE OR (m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL))
-            ORDER BY m.match_date DESC, m.id DESC
+            {_ONE_ROW_PER_FIXTURE_ORDER}
             """,
             (comp_code, comp_code, completed_only),
         )
         rows = cur.fetchall()
 
-    matches = []
-    for row in rows:
-        total_goals, winner, btts = _compute_match_derived_fields(row[9], row[10])
-        matches.append(
-            {
-                "date": row[0].strftime("%d.%m.%y"),
-                "competition": row[1],
-                "home_team": row[2],
-                "away_team": row[3],
-                "home_odds": float(row[4]),
-                "draw_odds": float(row[5]),
-                "away_odds": float(row[6]),
-                "home_rating": float(row[7]),
-                "away_rating": float(row[8]),
-                "home_goals": row[9],
-                "away_goals": row[10],
-                "result": f"{row[9]}-{row[10]}" if row[9] is not None and row[10] is not None else None,
-                "total_goals": total_goals,
-                "winner": winner,
-                "btts?": btts,
-            }
-        )
-    return matches
+    return [_history_row_to_match(row) for row in rows]
 
 
 def matches_to_csv(matches: list[dict]) -> str:

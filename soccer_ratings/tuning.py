@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .backtest import implied_probabilities_from_odds, match_outcome
+from .matchkeys import sort_matches_by_date
 from .odds import (
     DEFAULT_RHO,
     calculate_match_probabilities,
@@ -18,16 +19,6 @@ DEFAULT_HOME_ADVANTAGES = (0.0, 60.0, 100.0)
 DEFAULT_RHOS = (-0.30, -0.20, -0.13, -0.05, 0.0)
 
 
-def _date_sort_key(value) -> str:
-    """Rearrange a dd.mm.yy date so string ordering matches chronology."""
-    text = str(value or "").strip()
-    parts = text.split(".")
-    if len(parts) == 3:
-        day, month, year = parts
-        return f"{year}.{month}.{day}"
-    return text
-
-
 def _brier_score(probabilities: dict[str, float], outcome: str) -> float:
     return sum(
         (probabilities[key] - (1.0 if key == outcome else 0.0)) ** 2 for key in OUTCOMES
@@ -43,7 +34,7 @@ def walk_forward_predictions(matches: list[dict], weight_scale: float) -> list[d
     history (past and future relative to the match being scored) would let
     each prediction see results that hadn't happened yet.
     """
-    ordered = sorted(matches, key=lambda match: _date_sort_key(match.get("date")))
+    ordered = sort_matches_by_date(matches)
     predictions: list[dict] = []
 
     for index, match in enumerate(ordered):
@@ -219,7 +210,7 @@ def sweep_league_parameters(
             "default": None,
         }
 
-    ordered = sorted(completed, key=lambda match: _date_sort_key(match.get("date")))
+    ordered = sort_matches_by_date(completed)
 
     # Precompute historical contexts to avoid redundant calculation in the loop
     precomputed = []

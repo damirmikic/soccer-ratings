@@ -9,6 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .matchhistory import build_form_guide, build_head_to_head
+from .matchkeys import match_identity_key, sort_matches_by_date
 from .odds import (
     DEFAULT_RHO,
     apply_shin_margin,
@@ -492,36 +493,19 @@ def compare_teams_in_league(
 
 
 def dedupe_matches(matches: list[dict]) -> list[dict]:
-    deduped: dict[tuple[str, str, str, str], dict] = {}
+    """Collapse repeated fixtures from a scrape, newest first.
+
+    Keys on soccer_ratings.matchkeys.match_identity_key rather than raw
+    strings, so the same fixture scraped from two teams' pages — where the
+    club names can differ in case or spacing — is recognized as one match.
+    """
+    deduped: dict[tuple, dict] = {}
     for match in matches:
-        key = (
-            str(match.get("date", "")).strip(),
-            str(match.get("competition", "")).strip(),
-            str(match.get("home_team", "")).strip(),
-            str(match.get("away_team", "")).strip(),
-        )
+        key = match_identity_key(match)
         if key not in deduped:
             deduped[key] = match
 
-    return sorted(
-        deduped.values(),
-        key=lambda row: (
-            _chronological_date_key(str(row.get("date", ""))),
-            str(row.get("competition", "")),
-            str(row.get("home_team", "")),
-            str(row.get("away_team", "")),
-        ),
-        reverse=True,
-    )
-
-
-def _chronological_date_key(value: str) -> str:
-    """Rearrange a dd.mm.yy date so string ordering matches chronology."""
-    parts = value.strip().split(".")
-    if len(parts) == 3:
-        day, month, year = parts
-        return f"{year}.{month}.{day}"
-    return value
+    return sort_matches_by_date(list(deduped.values()), reverse=True)
 
 
 def filter_matches_for_league(matches: list[dict], league_url: str) -> list[dict]:

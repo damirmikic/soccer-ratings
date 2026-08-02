@@ -1,8 +1,17 @@
 from __future__ import annotations
 
-from .odds import DEFAULT_MARKET_WEIGHT, DEFAULT_RHO, blend_with_market, calculate_match_probabilities
+from datetime import datetime, timezone
+
+from .matchkeys import dedupe_matches
+from .odds import DEFAULT_MARKET_WEIGHT, DEFAULT_RHO, blend_with_market, calculate_match_probabilities, parse_date
 
 OUTCOMES = ("home", "draw", "away")
+
+# Ratings written this long after kickoff are treated as suspect rather than
+# as-of-match. A day of slack absorbs the ordinary case: a match played in
+# the evening whose row is written by an overnight import, with ratings that
+# still reflect the pre-match state.
+RATING_CAPTURE_GRACE_HOURS = 24.0
 
 _CALIBRATION_BUCKET_SIZE = 0.1
 
@@ -171,7 +180,18 @@ def run_league_backtest(
 ) -> dict:
     """Replay a league's stored match history through the model and grade it
     against both what actually happened and what the market priced in.
+
+    Repeated fixtures are collapsed first (see soccer_ratings.matchkeys):
+    the same match arriving two or three times would otherwise count two or
+    three times in the Brier average, the calibration buckets, and — most
+    damagingly — the staked/profit totals, turning one bad bet into three.
+    "duplicates_dropped" reports how many rows that removed, so a
+    regression upstream shows up in the payload instead of hiding inside a
+    plausible-looking ROI.
     """
+    matches, duplicates_dropped = dedupe_matches(matches)
+    ratings_as_of = _build_ratings_as_of_report(matches)
+
     evaluated = [
         row
         for row in (
@@ -190,6 +210,8 @@ def run_league_backtest(
     if not evaluated:
         return {
             "matches_evaluated": 0,
+            "duplicates_dropped": duplicates_dropped,
+            "ratings_as_of": ratings_as_of,
             "edge_threshold_percent": round(edge_threshold_percent, 2),
             "stake": stake,
             "market_weight": round(market_weight, 2),
@@ -233,6 +255,8 @@ def run_league_backtest(
 
     return {
         "matches_evaluated": len(evaluated),
+        "duplicates_dropped": duplicates_dropped,
+        "ratings_as_of": ratings_as_of,
         "edge_threshold_percent": round(edge_threshold_percent, 2),
         "stake": stake,
         "market_weight": round(market_weight, 2),
@@ -259,6 +283,98 @@ def run_league_backtest(
         ),
         "matches": evaluated,
     }
+
+
+def _build_ratings_as_of_report(matches: list[dict]) -> dict:
+    """Check whether the ratings stored on each match row plausibly predate
+    its kickoff.
+
+    The backtest scores every match using the home_rating/away_rating saved
+    on the row, on the assumption those are the ratings as they stood when
+    the match was played. Nothing in the data model enforces that: if a row
+    is (re)written after the result is known, it can carry ratings that
+    already reflect the outcome being predicted, and the backtest would
+    score the model on knowledge it could not have had.
+
+    This does not silently drop anything — the point is to make the
+    assumption falsifiable. "unknown" rows are ones whose capture time was
+    never recorded (everything imported before rating_captured_at existed),
+    which is not evidence of leakage but is not evidence against it either.
+    """
+    total = len(matches)
+    verified = 0
+    suspect = 0
+    unknown = 0
+    latest_lag_hours = 0.0
+
+    for match in matches:
+        captured_at = match.get("rating_captured_at")
+        match_date = parse_date(match.get("date"))
+        if captured_at is None or match_date is None:
+            unknown += 1
+            continue
+
+        if isinstance(captured_at, str):
+            captured_dt = _parse_timestamp(captured_at)
+            if captured_dt is None:
+                unknown += 1
+                continue
+        elif isinstance(captured_at, datetime):
+            captured_dt = captured_at
+        else:
+            unknown += 1
+            continue
+
+        if captured_dt.tzinfo is None:
+            captured_dt = captured_dt.replace(tzinfo=timezone.utc)
+
+        kickoff = datetime(
+            match_date.year, match_date.month, match_date.day, tzinfo=timezone.utc
+        )
+        lag_hours = (captured_dt - kickoff).total_seconds() / 3600.0
+        if lag_hours > RATING_CAPTURE_GRACE_HOURS:
+            suspect += 1
+            latest_lag_hours = max(latest_lag_hours, lag_hours)
+        else:
+            verified += 1
+
+    warnings = []
+    if suspect > 0:
+        warnings.append(
+            f"{suspect} of {total} matches carry ratings written more than "
+            f"{round(RATING_CAPTURE_GRACE_HOURS)}h after kickoff (worst: "
+            f"{round(latest_lag_hours / 24.0)} days) — those predictions may be "
+            "scored on ratings that already reflect the result."
+        )
+    if unknown > 0:
+        warnings.append(
+            f"{unknown} of {total} matches have no rating capture time recorded, so "
+            "whether their ratings predate kickoff cannot be verified."
+        )
+
+    return {
+        "matches": total,
+        "verified_before_kickoff": verified,
+        "captured_after_kickoff": suspect,
+        "unknown": unknown,
+        "grace_hours": RATING_CAPTURE_GRACE_HOURS,
+        # Only true when every row was positively checked — "no warnings"
+        # must not be reachable by simply never recording the timestamp.
+        "trustworthy": bool(total > 0 and verified == total),
+        "warnings": warnings,
+    }
+
+
+def _parse_timestamp(value: str) -> datetime | None:
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
 
 
 def _build_value_bets_by_side(evaluated: list[dict], stake: float) -> dict[str, dict]:

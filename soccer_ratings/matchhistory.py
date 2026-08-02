@@ -1,18 +1,10 @@
 from __future__ import annotations
 
-
-def _date_sort_key(value) -> str:
-    """Rearrange a dd.mm.yy date so string ordering matches chronology."""
-    text = str(value or "").strip()
-    parts = text.split(".")
-    if len(parts) == 3:
-        day, month, year = parts
-        return f"{year}.{month}.{day}"
-    return text
+from .matchkeys import sort_matches_by_date
 
 
 def _sorted_by_date_desc(matches: list[dict]) -> list[dict]:
-    return sorted(matches, key=lambda match: _date_sort_key(match.get("date")), reverse=True)
+    return sort_matches_by_date(matches, reverse=True)
 
 
 def build_head_to_head(

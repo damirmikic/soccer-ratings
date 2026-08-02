@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS matches (
     result_text TEXT,
     source_team_id BIGINT REFERENCES teams(id) ON DELETE SET NULL,
     source_team_path TEXT,
+    -- When home_rating/away_rating were written. The backtest treats those
+    -- ratings as the pre-match view; this is what lets it verify that
+    -- rather than assume it (see backtest._build_ratings_as_of_report).
+    rating_captured_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (match_date, competition, home_team_id, away_team_id)
