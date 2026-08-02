@@ -214,6 +214,23 @@ async def history_import(request: Request) -> HTMLResponse:
         )
 
 
+@router.post("/dedupe-history", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+def dedupe_history(request: Request) -> HTMLResponse:
+    try:
+        result = _svc(request).dedupe_history()
+        return _templates.TemplateResponse(
+            request,
+            "fragments/dedupe_history_result.html",
+            {"result": result},
+        )
+    except Exception as exc:
+        return _templates.TemplateResponse(
+            request,
+            "fragments/dedupe_history_result.html",
+            {"error": str(exc)},
+        )
+
+
 @router.post("/country-import", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
 async def country_import(request: Request, background_tasks: BackgroundTasks) -> HTMLResponse:
     country_url = await _form_or_query(request, "country_url")

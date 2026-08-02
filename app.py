@@ -31,6 +31,7 @@ from soccer_ratings.db import (
     load_all_history_matches,
     load_league_history_matches,
     matches_to_csv,
+    merge_duplicate_teams,
     refresh_known_history,
     update_league_tuning_parameters,
 )
@@ -289,6 +290,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Save the best-performing tuning parameters to the database.",
     )
 
+    dedupe_history_parser = subparsers.add_parser(
+        "dedupe-history",
+        help=(
+            "Merge duplicate team rows (and the duplicate match rows they cascaded into) left "
+            "behind by a past import bug. Safe to run repeatedly; a clean database is a no-op."
+        ),
+    )
+    dedupe_history_parser.add_argument(
+        "--database-url",
+        help="Optional Postgres connection URL. Defaults to DATABASE_URL.",
+    )
+
     crawl_country_parser = subparsers.add_parser(
         "crawl-country",
         help="Fetch all league home/away ratings for a country.",
@@ -400,6 +413,8 @@ def main() -> int:
         if args.persist and payload.get("best"):
             update_league_tuning_parameters(args.league_url, payload["best"], args.database_url)
             payload["persisted"] = True
+    elif args.command == "dedupe-history":
+        payload = merge_duplicate_teams(args.database_url)
     elif args.command == "crawl-country":
         payload = fetch_country_league_ratings(
             args.country_url,
