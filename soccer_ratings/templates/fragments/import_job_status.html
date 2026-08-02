@@ -26,9 +26,27 @@
 </div>
 {% elif job.status == "done" %}
 {% set result = job.result %}
-<span class="history-cache-meta">
-  Country import done: {{ result.leagues_processed }} leagues, {{ result.matches_imported }} matches{% if result.failure_count %} ({{ result.failure_count }} league(s) failed){% endif %}.
-</span>
+<div class="history-cache-meta">
+  <span>Country import done: {{ result.leagues_processed }} leagues, {{ result.matches_imported }} matches{% if result.failure_count %} ({{ result.failure_count }} league(s) failed){% endif %}.</span>
+  {% if result.get("failures") %}
+  <details style="margin-top: 0.5em;">
+    <summary style="cursor: pointer;">View failure details</summary>
+    <ul style="margin-top: 0.25em; margin-bottom: 0;">
+      {% for failure in result.failures %}
+      <li>
+        {% if failure.get("league") %}
+        <strong>{{ failure.league }}</strong>: {{ failure.error }}
+        {% elif failure.get("country") %}
+        <strong>{{ failure.country }}</strong>: {{ failure.error }}
+        {% else %}
+        {{ failure.error }}
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</div>
 {% else %}
 <span class="history-cache-meta">Import failed: {{ job.error }}</span>
 {% endif %}
