@@ -23,7 +23,8 @@ class DBConnectionPoolingTests(unittest.TestCase):
             "postgresql://user:pass@localhost:5432/db",
             min_size=2,
             max_size=5,
-            open=True
+            open=True,
+            kwargs={"prepare_threshold": None}
         )
 
     def test_close_pool_closes_and_cleans_up(self):

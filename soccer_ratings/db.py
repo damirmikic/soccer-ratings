@@ -72,7 +72,15 @@ def init_pool(database_url: str | None = None, min_size: int | None = None, max_
         ) from exc
 
     logger.info("Initializing psycopg_pool.ConnectionPool with min_size=%d, max_size=%d", min_size, max_size)
-    _POOL = ConnectionPool(url, min_size=min_size, max_size=max_size, open=True)
+    # prepare_threshold=None disables psycopg's server-side prepared statements.
+    # DATABASE_URL points at Supabase's transaction-pooling PgBouncer, which
+    # can hand a session a backend connection that already has a
+    # same-named prepared statement from another client (or not the one
+    # that created it) — psycopg's auto-prepare then fails with
+    # 'prepared statement "_pg3_N" already exists'.
+    _POOL = ConnectionPool(
+        url, min_size=min_size, max_size=max_size, open=True, kwargs={"prepare_threshold": None}
+    )
 
 
 def close_pool() -> None:
@@ -96,7 +104,10 @@ def connect(database_url: str | None = None, *, use_direct: bool = False):
             "psycopg is required for Postgres support. Install it with `pip install psycopg[binary]`."
         ) from exc
 
-    return psycopg.connect(get_database_url(database_url, use_direct=use_direct))
+    # See init_pool's prepare_threshold comment — applies here too since this
+    # path is also used against the transaction-pooling PgBouncer URL
+    # whenever the pool hasn't been initialized (e.g. CLI commands).
+    return psycopg.connect(get_database_url(database_url, use_direct=use_direct), prepare_threshold=None)
 
 
 @contextmanager
